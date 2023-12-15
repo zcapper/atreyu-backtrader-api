@@ -1,3 +1,7 @@
+Edits by Joseph Luce
+============
+I've forked the original repo inorder to accommodate my own needs as well as the original repo may not be supported anymore. I've fixed a few bugs that were introduced as the TWS API continues to update. 
+
 Introduction
 ============
 
@@ -208,6 +212,30 @@ Output
 2017-12-28 00:00:00, Open:52.90, High:52.92, Low:52.40, Close:52.46, Volume:151108.40
 2017-12-29 00:00:00, Open:52.66, High:52.74, Low:52.24, Close:52.36, Volume:105796.60
 2017-12-30 00:00:00, Open:52.42, High:52.55, Low:52.13, Close:52.24, Volume:75590.60
+```
+
+Getting Delayed Data
+-----------------------------------
+EDIT: Joseph Luce
+
+You do not need a data subscription. By default the TWS API requests real-time data. I've added reqMarketDataType() method to switch from real-time, delayed, frozen, etc... Delayed data will automatically backfill one year of data.
+
+```python
+cerebro = bt.Cerebro()
+ibstore = IBStore(host='127.0.0.1', 
+                  port=7497, 
+                  clientId=35)
+ibstore.reqMarketDataType(3)
+data = ibstore.getdata(name="XLE",         # Data name
+                       dataname='XLE',     # Symbol name
+                       secType='STK',       # SecurityType is STOCK
+                       exchange='SMART',    # Trading exchange IB's SMART exchange 
+                       currency='USD',      # Currency of SecurityType
+                       )
+cerebro.adddata(data)
+broker = ibstore.getbroker()
+cerebro.setbroker(broker)
+cerebro.run()
 ```
 
 How is the Data Presented in the Strategy?
