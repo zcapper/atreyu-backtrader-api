@@ -147,6 +147,10 @@ class IBOrder(OrderBase, ibapi.order.Order):
         self.lmtPrice = 0.0
         self.auxPrice = 0.0
 
+        # No longer supported attributes
+        self.eTradeOnly = bytes('')
+        self.firmQuoteOnly = bytes('')
+
         if self.exectype == self.Market:  # is it really needed for Market?
             pass
         elif self.exectype == self.Close:  # is it ireally needed for Close?
