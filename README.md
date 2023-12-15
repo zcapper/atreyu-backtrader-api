@@ -1,6 +1,6 @@
 Edits by Joseph Luce
 ============
-I've forked the original repo inorder to accommodate my own needs as well as the original repo may not be supported anymore. I've fixed a few bugs that were introduced as the TWS API continues to update. 
+I've forked the original repo inorder to accommodate my own needs as well as the original repo may not be supported anymore. I've fixed a few bugs that were introduced as the TWS API continues to update. As of now,this repo works with TWS API v9.72+.
 
 Introduction
 ============
