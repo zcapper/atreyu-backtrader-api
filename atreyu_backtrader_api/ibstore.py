@@ -1462,6 +1462,15 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         self.conn.reqMktData(tickerId, contract, bytes(ticks), False, False, [])
         return q
 
+    def reqMarketDataType(self, marketDataType=1):
+        '''
+        Params:
+          - marketDataType: 1 (real-time data), 2(frozen data), 3(delayed data), 4(delayed-frozen data)
+        '''
+        tickerId, q = self.getTickerQueue()
+        self.conn.reqMarketDataType(marketDataType)
+        return q
+
     def reqTickByTickData(self, contract, what=None, ignoreSize=True):
         '''
         Tick-by-tick data corresponding to the data shown in the 
