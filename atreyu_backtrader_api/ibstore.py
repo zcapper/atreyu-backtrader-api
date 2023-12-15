@@ -181,7 +181,7 @@ class RTSize(object):
 class RTBar(object):
     '''Set realtimeBar object
     '''
-    def __init__(self, reqId, time, open_, high, low, close, volume, wap, count):
+    def __init__(self, reqId, time, open_, high, low, close, volume, count):
         self.vars = vars()
         self.reqId = reqId
         self.time = time
@@ -190,7 +190,7 @@ class RTBar(object):
         self.low = low
         self.close = close
         self.volume = volume
-        self.wap = wap
+        #self.wap = wap
         self.count = count
 
     def __str__(self):
@@ -208,7 +208,7 @@ class HistBar(object):
         self.low = bar.low
         self.close = bar.close
         self.volume = bar.volume
-        self.wap = bar.wap
+        #self.wap = bar.wap
         self.count = bar.barCount
 
     def __str__(self):
@@ -487,8 +487,8 @@ class IBApi(EWrapper, EClient):
         self.cb.tickGeneric(reqId, tickType, value)
 
     @logibmsg
-    def realtimeBar(self, reqId, time, open_, high, low, close, volume, wap, count):
-        self.cb.realtimeBar(RTBar(reqId, time, open_, high, low, close, float(volume), wap, count))
+    def realtimeBar(self, reqId, time, open_, high, low, close, volume, count):
+        self.cb.realtimeBar(RTBar(reqId, time, open_, high, low, close, float(volume), count))
 
     @logibmsg
     def historicalData(self, reqId, bar):
