@@ -39,7 +39,7 @@ from backtrader.utils.py3 import bytes, bstr, with_metaclass, queue, MAXFLOAT
 from backtrader.metabase import MetaParams
 from backtrader.comminfo import CommInfoBase
 from backtrader.position import Position
-from atreyu_backtrader_api import ibstore
+from ibapi_wrapper import ibstore
 from backtrader.utils import AutoDict, AutoOrderedDict
 from backtrader.comminfo import CommInfoBase
 

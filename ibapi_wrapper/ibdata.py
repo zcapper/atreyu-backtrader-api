@@ -30,7 +30,7 @@ from backtrader import TimeFrame, date2num, num2date
 from backtrader.utils.py3 import (integer_types, queue, string_types,
                                   with_metaclass)
 from backtrader.metabase import MetaParams
-from atreyu_backtrader_api import ibstore
+from ibapi_wrapper import ibstore
 
 import logging
 logger = logging.getLogger(__name__)
