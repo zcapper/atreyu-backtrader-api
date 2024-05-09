@@ -653,7 +653,7 @@ class IBData(with_metaclass(MetaIBData, DataBase)):
 
             elif self._state == self._ST_HISTORBACK:
                 try:
-                    msg = self.qhist.get(timeout=self.p.qcheck)
+                    msg = self.qhist.get()
                 except queue.Empty:
                     if True:
                         if self.p.historical:  # only historical

@@ -495,6 +495,11 @@ class IBApi(EWrapper, EClient):
         self.cb.historicalData(HistBar(reqId, bar))
 
     @logibmsg
+    def historicalSchedule(self, reqId, start_datetime, end_datetime, timezone, sessions):
+        '''Not implemented'''
+        pass
+
+    @logibmsg
     def historicalDataUpdate(self, reqId, bar):
         '''Not implemented'''
         pass
@@ -522,18 +527,24 @@ class IBApi(EWrapper, EClient):
         """
         for tick in ticks:
             self.cb.historicalTicks(reqId, HistTick(tick, 'RT_TICK_MIDPOINT'))
+        if done:
+            self.cb.historicalTicksEnd(reqId)
 
     @logibmsg
     def historicalTicksBidAsk(self, reqId, ticks, done):
         """returns historical tick data when whatToShow=BID_ASK"""
         for tick in ticks:
             self.cb.historicalTicks(reqId, HistTick(tick, 'RT_TICK_BID_ASK'))
+        if done:
+            self.cb.historicalTicksEnd(reqId)
 
     @logibmsg
     def historicalTicksLast(self, reqId, ticks, done):
         """returns tick-by-tick data for tickType = "Last" or "AllLast" """
         for tick in ticks:
             self.cb.historicalTicks(reqId, HistTick(tick, 'RT_TICK_LAST'))
+        if done:
+            self.cb.historicalTicksEnd(reqId)
 
     @logibmsg
     def tickByTickAllLast(self, reqId, tickType, time, price, size, tickAtrribLast, exchange, specialConditions):
@@ -1143,7 +1154,6 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         '''Receive answer and pass it to the queue'''
         self.qs[reqId].put(contractDetails)
 
-    @logibmsg
     def reqHistoricalDataEx(self, contract, enddate, begindate,
                             timeframe, compression,
                             what=None, useRTH=False, tz='', sessionend=None,
@@ -1164,7 +1174,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             return self.getTickerQueue(start=True)
 
         if enddate is None:
-            enddate = datetime.now()
+            enddate = datetime.utcnow().date()
 
         if begindate is None:
             duration = self.getmaxduration(timeframe, compression)
@@ -1231,16 +1241,18 @@ class IBStore(with_metaclass(MetaSingleton, object)):
 
         what = what or 'TRADES'
 
+        # print("Request Historical Data, parameters are:")
+        # print("tickerId: ", tickerId, "contract: ", contract, "enddate: ", intdate, "begindate: ", begindate, "duration: ",
+        #       duration, "barsize: ", barsize, "what: ", what, "useRTH: ", useRTH, "tz: ", tz)
         self.conn.reqHistoricalData(
             tickerId,
             contract,
-            #bytes(intdate.strftime('%Y%m%d %H:%M:%S') + ' GMT'),
             bytes(intdate.strftime('%Y%m%d-%H:%M:%S')),
             bytes(duration),
             bytes(barsize),
             bytes(what),
             int(useRTH),
-            2, # dateformat 1 for string, 2 for unix time in seconds
+            1, # dateformat 1 for string, 2 for unix time in seconds
             False,
             [])
 
@@ -1334,7 +1346,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             # bytes(enddate.strftime('%Y%m%d %H:%M:%S') + ' GMT') if enddate else '',
             bytes(begindate.strftime('%Y%m%d-%H:%M:%S')) if begindate else '',
             bytes(enddate.strftime('%Y%m%d-%H:%M:%S')) if enddate else '',
-            100,
+            999,
             bytes(what),
             int(useRTH),
             True,
@@ -1342,48 +1354,6 @@ class IBStore(with_metaclass(MetaSingleton, object)):
 
         return q
 
-    def reqHistoricalTicks(self, contract, enddate, begindate,
-                          what=None, useRTH=False, tz=''):
-        '''Proxy to reqHistoricalTicks'''
-
-        # get a ticker/queue for identification/data delivery
-        tickerId, q = self.getTickerQueue()
-
-        if contract.secType in ['CASH', 'CFD']:
-            self.iscash[tickerId] = True
-            if not what:
-                what = 'BID'  # TRADES doesn't work
-            elif what == 'ASK':
-                self.iscash[tickerId] = 2
-        else:
-            what = what or 'TRADES'
-
-        if what == 'TRADES_ALL':
-            what = 'LastAll'
-        elif what == 'TRADES':
-            what = 'Last'
-        elif what == 'BID_ASK':
-            when = 'BidAsk'
-        elif what == 'MIDPOINT':
-            when = 'MidPoint'
-
-        self.conn.reqHistoricalTicks(
-            tickerId,
-            contract,
-            # bytes(begindate.strftime('%Y%m%d %H:%M:%S') + ' GMT') if begindate else '',
-            bytes(begindate.strftime('%Y%m%d-%H:%M:%S')) if begindate else '',
-            # bytes(enddate.strftime('%Y%m%d %H:%M:%S') + ' GMT'),
-            # bytes(enddate.strftime('%Y%m%d %H:%M:%S') + ' GMT') if enddate else '',
-            bytes(enddate.strftime('%Y%m%d-%H:%M:%S')) if enddate else '',
-            10,
-            bytes(what),
-            # int(useRTH),
-            1,
-            True,
-            [])
-
-        return q
-    
     def cancelHistoricalData(self, q):
         '''Cancels an existing HistoricalData request
 
@@ -1639,7 +1609,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             return
 
         q = self.qs[tickerId]
-        self.cancelQueue(q)
+        self.cancelQueue(q, True)
 
     def historicalTicks(self, reqId, tick):
         tickerId = reqId
@@ -2131,7 +2101,6 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             elif key == 'CashBalance' and currency == 'BASE':
                 self.acc_cash[accountName] = value
     
-    @logibmsg
     def get_acc_values(self, account=None):
         '''Returns all account value infos sent by TWS during regular updates
         Waits for at least 1 successful download
@@ -2169,7 +2138,6 @@ class IBStore(with_metaclass(MetaSingleton, object)):
 
             return self.acc_upds.copy()
 
-    @logibmsg
     def get_acc_value(self, account=None):
         '''Returns the net liquidation value sent by TWS during regular updates
         Waits for at least 1 successful download
@@ -2201,7 +2169,6 @@ class IBStore(with_metaclass(MetaSingleton, object)):
 
         return float()
 
-    @logibmsg
     def get_acc_cash(self, account=None):
         '''Returns the total cash value sent by TWS during regular updates
         Waits for at least 1 successful download
