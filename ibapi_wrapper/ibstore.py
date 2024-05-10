@@ -21,74 +21,63 @@
 from __future__ import (absolute_import, division, print_function,
                         unicode_literals)
 
-# import functools
 import collections
-from copy import copy, deepcopy
+from copy import copy 
 from datetime import date, datetime, timedelta
 import inspect
 import itertools
 import random
 import threading
 import time
-
-from backtrader import TimeFrame, Position
-from backtrader.metabase import MetaParams
-from backtrader.utils.py3 import bytes, bstr, queue, with_metaclass, long
-from backtrader.utils import AutoDict, UTC
-
 import bisect
 
-bytes = bstr  # py2/3 need for ibpy
+from backtrader import TimeFrame, Position
+from backtrader.metabase import MetaParams  # type: ignore
+from backtrader.utils.py3 import bytes, bstr, queue, with_metaclass, long  # type: ignore
+from backtrader.utils import AutoDict, UTC  # type: ignore
 
+# import official ibapi
 from ibapi.client import EClient
 from ibapi.wrapper import EWrapper
 from ibapi.contract import Contract
 from ibapi.ticktype import TickTypeEnum
-
 import logging
+
+bytes = bstr  # py2/3 need for ibpy
 logger = logging.getLogger(__name__)
 
-ENABLE_DEBUG=True
-
-def _ts2dt(tstamp=None):
-    # Transforms a RTVolume timestamp to a datetime object
-    if not tstamp:
-        return datetime.utcnow()
-
-    sec, msec = divmod(long(tstamp), 1000)
-    usec = msec * 1000
-    return datetime.utcfromtimestamp(sec).replace(microsecond=usec)
 
 class ErrorMsg(object):
     def __init__(self, reqId, errorCode, errorString, advancedOrderRejectJson):
-        self.vars = vars()
-        del self.vars['self']
         self.reqId = reqId
         self.errorCode = errorCode
         self.errorString = errorString
         self.advancedOrderRejectJson = advancedOrderRejectJson
+        self.vars = vars()
+        del self.vars['self']
 
     def __str__(self):
         return f'{self.vars}'
 
+
 class OpenOrderMsg(object):
     def __init__(self, orderId, contract, order, orderState):
-        self.vars = vars()
-        del self.vars['self']
         self.orderId = orderId
         self.contract = contract
         self.order = order
         self.orderState = orderState
+        self.vars = vars()
+        del self.vars['self']
 
     def __str__(self):
         return f'{self.vars}'
+
 
 class OrderStatusMsg(object):
     def __init__(self, orderId , status, filled,
                     remaining, avgFillPrice, permId,
                     parentId, lastFillPrice, clientId,
                     whyHeld, mktCapPrice):
-        self.vars = vars()
         self.orderId = orderId
         self.status = status
         self.filled = filled
@@ -100,9 +89,21 @@ class OrderStatusMsg(object):
         self.clientId = clientId
         self.whyHeld = whyHeld
         self.mktCapPrice = mktCapPrice
+        self.vars = vars()
 
     def __str__(self):
         return f'{self.vars}'
+
+
+def _ts2dt(tstamp=None):
+    # Transforms a RTVolume timestamp to a datetime object
+    if not tstamp:
+        return datetime.utcnow()
+
+    sec, msec = divmod(long(tstamp), 1000)
+    usec = msec * 1000
+    return datetime.utcfromtimestamp(sec).replace(microsecond=usec)
+
 
 class RTVolume(object):
     '''Parses a tickString tickType 48 (RTVolume) event from the IB API into its
@@ -120,7 +121,6 @@ class RTVolume(object):
     ]
 
     def __init__(self, rtvol='', price=None, tmoffset=None):
-        self.vars = vars()
         # Use a provided string or simulate a list of empty tokens
         tokens = iter(rtvol.split(';'))
 
@@ -134,15 +134,16 @@ class RTVolume(object):
 
         if tmoffset is not None:
             self.datetime += tmoffset
+        self.vars = vars()
 
     def __str__(self):
         return f'{self.vars}'
+
 
 class RTPrice(object):
     '''Set price from a tickPrice
     '''
     def __init__(self, price, tmoffset=None):
-        self.vars = vars()
         # No size for tickPrice
         self.size = None
 
@@ -154,15 +155,16 @@ class RTPrice(object):
 
         if tmoffset is not None:
             self.datetime += tmoffset
+        self.vars = vars()
 
     def __str__(self):
         return f'{self.vars}'
+
 
 class RTSize(object):
     '''Set size from a tickSize
     '''
     def __init__(self, size, tmoffset=None):
-        self.vars = vars()
         # No size for tickPrice
         self.price = None
 
@@ -175,14 +177,16 @@ class RTSize(object):
         if tmoffset is not None:
             self.datetime += tmoffset
 
+        self.vars = vars()
+
     def __str__(self):
         return f'{self.vars}'
+
 
 class RTBar(object):
     '''Set realtimeBar object
     '''
     def __init__(self, reqId, time, open_, high, low, close, volume, wap, count):
-        self.vars = vars()
         self.reqId = reqId
         self.time = time
         self.open = open_
@@ -192,15 +196,16 @@ class RTBar(object):
         self.volume = volume
         self.wap = wap
         self.count = count
+        self.vars = vars()
 
     def __str__(self):
         return f'{self.vars}'
+
 
 class HistBar(object):
     '''Set historicalBar object
     '''
     def __init__(self, reqId, bar):
-        self.vars = vars()
         self.reqId = reqId
         self.date = bar.date
         self.open = bar.open
@@ -210,15 +215,16 @@ class HistBar(object):
         self.volume = bar.volume
         self.wap = bar.wap
         self.count = bar.barCount
+        self.vars = vars()
 
     def __str__(self):
         return f'{self.vars}'
+
 
 class HistTick(object):
     '''Set historicalTick object: 'MIDPOINT', 'BID_ASK', 'TRADES' 
     '''
     def __init__(self, tick, dataType):
-        self.vars = vars()
         self.date = datetime.utcfromtimestamp(tick.time)
         self.tickType = tick.tickType if hasattr(tick, 'tickType') else int(0)
         self.dataType = dataType
@@ -234,18 +240,19 @@ class HistTick(object):
             self.askPrice = tick.priceAsk
             self.bidSize = float(tick.sizeBid)
             self.askSize = float(tick.sizeAsk)
-            
+
         # self.exchange = tick.exchange
         # self.specialconditions = tick.tickAttribLast.specialConditions
+        self.vars = vars()
 
     def __str__(self):
         return f'{self.vars}'
+
 
 class RTTickLast(object):
     '''Set realtimeTick object: 'TRADES' 
     '''
     def __init__(self, tickType, time, price, size, tickAtrribLast, exchange, specialConditions):
-        self.vars = vars()
         self.dataType = "RT_TICK_LAST"
         self.datetime = datetime.utcfromtimestamp(time)
         # self.tickType = TickTypeEnum.to_str(tickType)
@@ -256,15 +263,16 @@ class RTTickLast(object):
         self.unreported = tickAtrribLast.unreported
         # self.exchange = exchange
         # self.specialConditions = specialConditions
+        self.vars = vars()
 
     def __str__(self):
         return f'{self.vars}'
+
 
 class RTTickBidAsk(object):
     '''Set realtimeTick object: 'MIDPOINT', 'BID_ASK', 'TRADES' 
     '''
     def __init__(self, time, bidPrice, askPrice, bidSize, askSize, tickAttribBidAsk):
-        self.vars = vars()
         self.dataType = "RT_TICK_BID_ASK"
         self.datetime = datetime.utcfromtimestamp(time)
         self.bidPrice = bidPrice
@@ -273,21 +281,24 @@ class RTTickBidAsk(object):
         self.askSize = float(askSize)
         self.bidPastLow = tickAttribBidAsk.bidPastLow
         self.askPastHigh = tickAttribBidAsk.askPastHigh
+        self.vars = vars()
 
     def __str__(self):
         return f'{self.vars}'
+
 
 class RTTickMidPoint(object):
     '''Set realtimeTick object: 'MIDPOINT'
     '''
     def __init__(self, time, midPoint):
-        self.vars = vars()
         self.dataType = "RT_TICK_MIDPOINT"
         self.datetime = datetime.utcfromtimestamp(time)
         self.midPoint = midPoint
+        self.vars = vars()
 
     def __str__(self):
         return f'{self.vars}'
+
 
 class MetaSingleton(MetaParams):
     '''Metaclass to make a metaclassed class a singleton'''
@@ -301,6 +312,7 @@ class MetaSingleton(MetaParams):
                 super(MetaSingleton, cls).__call__(*args, **kwargs))
 
         return cls._singleton
+
 
 def logibmsg(fn):
     def logmsg_decorator(self, *args, **kwargs):
@@ -317,6 +329,7 @@ def logibmsg(fn):
             raise e
 
     return logmsg_decorator
+
 
 class IBApi(EWrapper, EClient):
     def __init__(self, cb, _debug):
@@ -368,7 +381,6 @@ class IBApi(EWrapper, EClient):
     def updateAccountValue(self, key, val, currency, accountName):
         """ This function is called only when ReqAccountUpdates on
         EEClientSocket object has been called. """
-        logger.debug(f"{key}, {val}, {currency}, {accountName}")
         self.cb.updateAccountValue(key, val, currency, accountName)
 
     @logibmsg
@@ -412,7 +424,6 @@ class IBApi(EWrapper, EClient):
     @logibmsg
     def openOrderEnd(self):
         """This is called at the end of a given request for open orders."""
-        logger.debug(f"openOrderEnd")
         self.cb.openOrderEnd()
 
     @logibmsg
@@ -640,12 +651,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
     params = (
         ('host', '127.0.0.1'),
         ('port', 7496),
-        ('clientId', None),  # None generates a random clientid 1 -> 2^16
-        ('broker_host', ''),
-        ('broker_request_port', 12345),
-        ('broker_subscribe_port', 12345),
-        ('broker_user_name', ''),
-        ('broker_password', ''),
+        ('clientId', 8531),  # None generates a random clientid 1 -> 2^16
         ('notifyall', False),
         ('_debug', False),
         ('reconnect', 3),  # -1 forever, 0 No, > 0 number of retries
@@ -670,9 +676,9 @@ class IBStore(with_metaclass(MetaSingleton, object)):
 
         self._lock_q = threading.Lock()  # sync access to _tickerId/Queues
         self._lock_accupd = threading.Lock()  # sync account updates
-        self._lock_pos = threading.Lock()  # sync account updates
+        self._lock_pos = threading.Lock()  # sync position updates
         self._lock_notif = threading.Lock()  # sync access to notif queue
-        self._updacclock = threading.Lock()  # sync account updates
+        self._lock_acc_update = threading.Lock()  # sync account value/cash lock
 
         # Account list received
         self._event_managed_accounts = threading.Event()
@@ -762,7 +768,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
 
     
     def start(self, data=None, broker=None):
-        logger.info(f"START data: {data} broker: {broker}")
+        logger.info(f"IBStore start, data: {data} broker: {broker}")
         self.reconnect(fromstart=True)  # reconnect should be an invariant
 
         # Datas require some processing to kickstart data reception
@@ -782,7 +788,6 @@ class IBStore(with_metaclass(MetaSingleton, object)):
 
         elif broker is not None:
             self.broker = broker
-
     
     def stop(self):
         try:
@@ -858,7 +863,6 @@ class IBStore(with_metaclass(MetaSingleton, object)):
                     return True  # connection successful
             except Exception as e:
                 logger.exception(f"Failed to Connect {e}")
-                return False
 
             if retries > 0:
                 retries -= 1
@@ -866,7 +870,6 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         self.dontreconnect = True
         return False  # connection/reconnection failed
 
-    
     def startdatas(self):
         # kickstrat datas, not returning until all of them have been done
         ts = list()
@@ -2116,7 +2119,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         # if self.connected():
         #     self._event_accdownload.wait()
         # Lock access to acc_cash to avoid an event intefering
-        with self._updacclock:
+        with self._lock_acc_update:
             if account is None:
                 # wait for the managedAccount Messages
                 # if self.connected():
@@ -2152,7 +2155,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         # before the value can be returned to the calling client
         # Lock access to acc_cash to avoid an event intefering
 
-        with self._updacclock:
+        with self._lock_acc_update:
             if account is None:
                 if not self.managed_accounts:
                     return float()
