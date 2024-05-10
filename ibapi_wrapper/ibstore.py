@@ -1425,10 +1425,11 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         ticks = '233'  # request RTVOLUME tick delivered over tickString
 
         if contract.secType in ['CASH', 'CFD']:
-            self.iscash[tickerId] = True
-            ticks = ''  # cash markets do not get RTVOLUME
-            if what == 'ASK':
-                self.iscash[tickerId] = 2
+            with self._lock_q:
+                self.iscash[tickerId] = True
+                ticks = ''  # cash markets do not get RTVOLUME
+                if what == 'ASK':
+                    self.iscash[tickerId] = 2
 
         # q.put(None)  # to kickstart backfilling
         # Can request 233 also for cash ... nothing will arrive
