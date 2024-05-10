@@ -947,7 +947,8 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             # cdetails 200 security not found, notify over right queue
             # cdetails 203 security not allowed for acct
             try:
-                q = self.qs[msg.reqId]
+                with self._lock_q:
+                    q = self.qs[msg.reqId]
             except KeyError:
                 pass  # should not happend but it can
             else:
@@ -958,7 +959,8 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             # 354 no subscription, 420 no real-time bar for contract
             # the calling data to let the data know ... it cannot resub
             try:
-                q = self.qs[msg.reqId]
+                with self._lock_q:
+                    q = self.qs[msg.reqId]
             except KeyError:
                 pass  # should not happend but it can
             else:
@@ -1025,7 +1027,8 @@ class IBStore(with_metaclass(MetaSingleton, object)):
                     self.broker.push_ordererror(msg)
             else:
                 # Cancel the queue if a "data" reqId error is given: sanity
-                q = self.qs[msg.reqId]
+                with self._lock_q:
+                    q = self.qs[msg.reqId]
                 logger.warn(f"Cancel data queue for {msg.reqId}")
                 self.cancelQueue(q, True)
 
@@ -1114,10 +1117,10 @@ class IBStore(with_metaclass(MetaSingleton, object)):
     def cancelQueue(self, q, sendnone=False):
         '''Cancels a Queue for data delivery'''
         # pop ts (tickers) and with the result qs (queues)
-        tickerId = self.ts.pop(q, None)
-        self.qs.pop(tickerId, None)
-
-        self.iscash.pop(tickerId, None)
+        with self._lock_q:
+            tickerId = self.ts.pop(q, None)
+            self.qs.pop(tickerId, None)
+            self.iscash.pop(tickerId, None)
 
         if sendnone:
             q.put(None)
@@ -1151,7 +1154,9 @@ class IBStore(with_metaclass(MetaSingleton, object)):
     def contractDetailsEnd(self, reqId):
         '''Signal end of contractdetails'''
         logger.debug(f"Cancel data queue tickerId: {reqId} Q: {self.qs[reqId]}")
-        self.cancelQueue(self.qs[reqId], True)
+        with self._lock_q:
+            tickerId = self.qs[reqId]
+        self.cancelQueue(tickerId, True)
         
     def contractDetails(self, reqId, contractDetails):
         '''Receive answer and pass it to the queue'''
@@ -1364,9 +1369,10 @@ class IBStore(with_metaclass(MetaSingleton, object)):
           - q: the Queue returned by reqMktData
         '''
         with self._lock_q:
-            self.conn.cancelHistoricalData(self.ts[q])
-            logger.warn(f"Cancel data queue for {q}")
-            self.cancelQueue(q, True)
+            tickerId = self.ts[q]
+        self.conn.cancelHistoricalData(tickerId)
+        logger.warn(f"Cancel data queue for {q}")
+        self.cancelQueue(q, True)
 
     @logibmsg
     def reqRealTimeBars(self, contract, useRTH=False, duration=5, what = None):
@@ -1405,11 +1411,11 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         '''
         with self._lock_q:
             tickerId = self.ts.get(q, None)
-            if tickerId is not None:
-                self.conn.cancelRealTimeBars(tickerId)
+        if tickerId is not None:
+            self.conn.cancelRealTimeBars(tickerId)
 
-            logger.debug(f"Cancel data queue for {tickerId}")
-            self.cancelQueue(q, True)
+        logger.debug(f"Cancel data queue for {tickerId}")
+        self.cancelQueue(q, True)
 
     def reqMktData(self, contract, what=None):
         '''Creates a MarketData subscription
@@ -1465,11 +1471,11 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         '''
         with self._lock_q:
             tickerId = self.ts.get(q, None)
-            if tickerId is not None:
-                self.conn.cancelMktData(tickerId)
+        if tickerId is not None:
+            self.conn.cancelMktData(tickerId)
 
-            logger.debug(f"Cancel data queue for {tickerId}")
-            self.cancelQueue(q, True)
+        logger.debug(f"Cancel data queue for {tickerId}")
+        self.cancelQueue(q, True)
 
     def cancelTickByTickData(self, q):
         '''Cancels an existing MarketData subscription
@@ -1479,11 +1485,11 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         '''
         with self._lock_q:
             tickerId = self.ts.get(q, None)
-            if tickerId is not None:
-                self.conn.cancelTickByTickData(tickerId)
+        if tickerId is not None:
+            self.conn.cancelTickByTickData(tickerId)
 
-            logger.debug(f"Cancel data queue for {tickerId}")
-            self.cancelQueue(q, True)
+        logger.debug(f"Cancel data queue for {tickerId}")
+        self.cancelQueue(q, True)
     
     def tickString(self, reqId, tickType, value):
         # Receive and process a tickString message
@@ -1612,7 +1618,8 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             self.reqHistoricalDataEx(tickerId=tickerId, **kargs)
             return
 
-        q = self.qs[tickerId]
+        with self._lock_q:
+            q = self.qs[tickerId]
         self.cancelQueue(q, True)
 
     def historicalTicks(self, reqId, tick):
