@@ -885,7 +885,6 @@ class IBStore(with_metaclass(MetaSingleton, object)):
     def stopdatas(self):
         # stop subs and force datas out of the loop (in LIFO order)
         logger.debug(f"Stopping datas")
-        qs = list(self.qs.values())
         ts = list()
         for data in self.datas:
             t = threading.Thread(target=data.canceldata)
@@ -895,9 +894,10 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         for t in ts:
             t.join()
 
+        with self._lock_q:
+            qs = list(self.qs.values())
         for q in reversed(qs):  # datamaster the last one to get a None
             q.put(None)
-
     
     def get_notifications(self):
         '''Return the pending "store" notifications'''
