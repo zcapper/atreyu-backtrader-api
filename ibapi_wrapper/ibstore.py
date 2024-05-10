@@ -346,7 +346,7 @@ class IBApi(EWrapper, EClient):
 
     @logibmsg
     def updateAccountTime(self, timeStamp):
-        logger.debug(f"timeStamp: {timeStamp}")
+        self.cb.updateAccountTime(timeStamp)
 
     @logibmsg
     def nextValidId(self, orderId):
@@ -678,7 +678,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         self._lock_accupd = threading.Lock()  # sync account updates
         self._lock_pos = threading.Lock()  # sync position updates
         self._lock_notif = threading.Lock()  # sync access to notif queue
-        self._lock_acc_update = threading.Lock()  # sync account value/cash lock
+        self._lock_managed_acc = threading.Lock()  # sync managed accounts
 
         # Account list received
         self._event_managed_accounts = threading.Event()
@@ -699,6 +699,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         self.ts = collections.OrderedDict()  # key: queue -> tickerId
         self.iscash = dict()  # tickerIds from cash products (for ex: EUR.JPY)
 
+        self._lock_histdata = threading.Lock()  # sync historical data
         self.histexreq = dict()  # holds segmented historical requests
         self.histfmt = dict()  # holds datetimeformat for request
         self.histsend = dict()  # holds sessionend (data time) for request
@@ -1048,7 +1049,8 @@ class IBStore(with_metaclass(MetaSingleton, object)):
     
     def managedAccounts(self, accountsList):
         # 1st message in the stream
-        self.managed_accounts = accountsList.split(',')
+        with self._lock_managed_acc:
+            self.managed_accounts = accountsList.split(',')
         self._event_managed_accounts.set()
 
         # Request time to avoid synchronization issues
@@ -1127,7 +1129,8 @@ class IBStore(with_metaclass(MetaSingleton, object)):
     
     def validQueue(self, q):
         '''Returns (bool)  if a queue is still valid'''
-        return q in self.ts  # queue -> ticker
+        with self._lock_q:
+            return q in self.ts  # queue -> ticker
     
     def getContractDetails(self, contract, maxcount=None):
         cds = list()
@@ -1160,7 +1163,9 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         
     def contractDetails(self, reqId, contractDetails):
         '''Receive answer and pass it to the queue'''
-        self.qs[reqId].put(contractDetails)
+        with self._lock_q:
+            q = self.qs[reqId]
+        q.put(contractDetails)
 
     def reqHistoricalDataEx(self, contract, enddate, begindate,
                             timeframe, compression,
@@ -1235,17 +1240,20 @@ class IBStore(with_metaclass(MetaSingleton, object)):
                 what=what, useRTH=useRTH, tz=tz, sessionend=sessionend)
 
         barsize = self.tfcomp_to_size(timeframe, compression)
-        self.histfmt[tickerId] = timeframe >= TimeFrame.Days
-        self.histsend[tickerId] = sessionend
-        self.histtz[tickerId] = tz
+        with self._lock_histdata:
+            self.histfmt[tickerId] = timeframe >= TimeFrame.Days
+            self.histsend[tickerId] = sessionend
+            self.histtz[tickerId] = tz
 
         if contract.secType in ['CASH', 'CFD']:
-            self.iscash[tickerId] = 1  # msg.field code
+            with self._lock_q:
+                self.iscash[tickerId] = 1  # msg.field code
             if not what:
                 what = 'BID'  # default for cash unless otherwise specified
 
         elif contract.secType in ['IND'] and self.p.indcash:
-            self.iscash[tickerId] = 4  # msg.field code
+            with self._lock_q:
+                self.iscash[tickerId] = 4  # msg.field code
 
         what = what or 'TRADES'
 
@@ -1274,19 +1282,22 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         tickerId, q = self.getTickerQueue()
 
         if contract.secType in ['CASH', 'CFD']:
-            self.iscash[tickerId] = True
+            with self._lock_q:
+                self.iscash[tickerId] = True
             if not what:
                 what = 'BID'  # TRADES doesn't work
             elif what == 'ASK':
-                self.iscash[tickerId] = 2
+                with self._lock_q:
+                    self.iscash[tickerId] = 2
         else:
             what = what or 'TRADES'
 
         # split barsize "x time", look in sizes for (tf, comp) get tf
         tframe = self._sizes[barsize.split()[1]][0]
-        self.histfmt[tickerId] = tframe >= TimeFrame.Days
-        self.histsend[tickerId] = sessionend
-        self.histtz[tickerId] = tz
+        with self._lock_histdata:
+            self.histfmt[tickerId] = tframe >= TimeFrame.Days
+            self.histsend[tickerId] = sessionend
+            self.histtz[tickerId] = tz
 
         self.conn.reqHistoricalData(
             tickerId,
@@ -1338,12 +1349,14 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             logger.debug(f"Reuse tickerId: {tickerId} Q: {q}")
 
         if contract.secType in ['CASH', 'CFD']:
-            self.iscash[tickerId] = 1  # msg.field code
+            with self._lock_q:
+                self.iscash[tickerId] = 1  # msg.field code
             if not what:
                 what = 'BID'  # default for cash unless otherwise specified
 
         elif contract.secType in ['IND'] and self.p.indcash:
-            self.iscash[tickerId] = 4  # msg.field code
+            with self._lock_q:
+                self.iscash[tickerId] = 4  # msg.field code
 
         what = what or 'TRADES'
 
@@ -1502,7 +1515,9 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             else:
                 # Don't need to adjust the time, because it is in "timestamp"
                 # form in the message
-                self.qs[tickerId].put(rtvol)
+                with self._lock_q:
+                    q = self.qs[tickerId]
+                q.put(rtvol)
 
     def tickPrice(self, reqId, tickType, price, attrib):
         '''Cash Markets have no notion of "last_price"/"last_size" and the
@@ -1517,7 +1532,8 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         # The price field has been seen to be missing in some instances even if
         # "field" is 1
         tickerId = reqId
-        fieldcode = self.iscash[tickerId]
+        with self._lock_q:
+            fieldcode = self.iscash[tickerId]
         if fieldcode:
             if tickType == fieldcode:  # Expected cash field code
                 try:
@@ -1534,7 +1550,9 @@ class IBStore(with_metaclass(MetaSingleton, object)):
                 except ValueError:  # price not in message ...
                     pass
                 else:
-                    self.qs[tickerId].put(rtvol)
+                    with self._lock_q:
+                        q = self.qs[tickerId]
+                    q.put(rtvol)
         else:
             # Non-cash
             try:
@@ -1545,12 +1563,16 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             except AttributeError:
                 pass
             rtprice = RTPrice(price=price, tmoffset=self.tmoffset)
-            self.qs[tickerId].put(rtprice)
+            with self._lock_q:
+                q = self.qs[tickerId]
+            q.put(rtprice)
 
     def tickSize(self, reqId, tickType, size):
         tickerId = reqId
         rtsize = RTSize(size=size, tmoffset=self.tmoffset)
-        self.qs[tickerId].put(rtsize)
+        with self._lock_q:
+            q = self.qs[tickerId]
+        q.put(rtsize)
 
     def tickGeneric(self, reqId, tickType, value):
         try:
@@ -1563,7 +1585,9 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         tickerId = reqId
         value = value # if msg.value != 0.0 else (1.0 + random.random())
         rtprice = RTPrice(price=value, tmoffset=self.tmoffset)
-        self.qs[tickerId].put(rtprice)
+        with self._lock_q:
+            q = self.qs[tickerId]
+        q.put(rtprice)
 
     def realtimeBar(self, msg):
         '''Receives x seconds Real Time Bars (at the time of writing only 5
@@ -1573,7 +1597,9 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         '''
         # Get a naive localtime object
         msg.time = datetime.utcfromtimestamp(float(msg.time))
-        self.qs[msg.reqId].put(msg)
+        with self._lock_q:
+            q = self.qs[msg.reqId]
+        q.put(msg)
 
     def historicalData(self, msg):
         '''Receives the events of a historical data request'''
@@ -1581,14 +1607,19 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         # tickerId (in case tickerIds are not reusable) and instead of putting
         # None, issue a new reqHistData with the new data and move formward
         tickerId = msg.reqId
-        q = self.qs[tickerId]
+        with self._lock_q:
+            q = self.qs[tickerId]
 
         dtstr = msg.date  # Format when string req: YYYYMMDD[  HH:MM:SS]
-        if self.histfmt[tickerId]:
-            sessionend = self.histsend[tickerId]
+        with self._lock_histdata:
+            has_histfmt = self.histfmt[tickerId]
+        if has_histfmt:
+            with self._lock_histdata:
+                sessionend = self.histsend[tickerId]
             dt = datetime.strptime(dtstr, '%Y%m%d')
             dteos = datetime.combine(dt, sessionend)
-            tz = self.histtz[tickerId]
+            with self._lock_histdata:
+                tz = self.histtz[tickerId]
             if tz:
                 dteostz = tz.localize(dteos)
                 dteosutc = dteostz.astimezone(UTC).replace(tzinfo=None)
@@ -1610,10 +1641,11 @@ class IBStore(with_metaclass(MetaSingleton, object)):
     
     def historicalDataEnd(self, reqId, start, end):
         tickerId = reqId
-        self.histfmt.pop(tickerId, None)
-        self.histsend.pop(tickerId, None)
-        self.histtz.pop(tickerId, None)
-        kargs = self.histexreq.pop(tickerId, None)
+        with self._lock_histdata:
+            self.histfmt.pop(tickerId, None)
+            self.histsend.pop(tickerId, None)
+            self.histtz.pop(tickerId, None)
+            kargs = self.histexreq.pop(tickerId, None)
         if kargs is not None:
             self.reqHistoricalDataEx(tickerId=tickerId, **kargs)
             return
@@ -1624,27 +1656,36 @@ class IBStore(with_metaclass(MetaSingleton, object)):
 
     def historicalTicks(self, reqId, tick):
         tickerId = reqId
-        self.qs[tickerId].put(tick)
+        with self._lock_q:
+            q = self.qs[tickerId]
+        q.put(tick)
 
     def historicalTicksEnd(self, reqId):
         tickerId = reqId
-        q = self.qs[tickerId]
+        with self._lock_q:
+            q = self.qs[tickerId]
         self.cancelTickByTickData(q)
 
     def tickByTickBidAsk(self, reqId, time, bidPrice, askPrice, bidSize, askSize, tickAttribBidAsk):
         tickerId = reqId
         tick = RTTickBidAsk(time, bidPrice, askPrice, bidSize, askSize, tickAttribBidAsk)
-        self.qs[tickerId].put(tick)
+        with self._lock_q:
+            q = self.qs[tickerId]
+        q.put(tick)
 
     def tickByTickAllLast(self, reqId, tickType, time, price, size, tickAtrribLast, exchange, specialConditions):
         tickerId = reqId
         tick = RTTickLast(tickType, time, price, size, tickAtrribLast, exchange, specialConditions)
-        self.qs[tickerId].put(tick)
+        with self._lock_q:
+            q = self.qs[tickerId]
+        q.put(tick)
 
     def tickByTickMidPoint(self, reqId, time, midPoint):
         tickerId = reqId
         tick = RTTickMidPoint(time, time, midPoint)
-        self.qs[tickerId].put(tick)
+        with self._lock_q:
+            q = self.qs[tickerId]
+        q.put(tick)
 
     # The _durations are meant to calculate the needed historical data to
     # perform backfilling at the start of a connetion or a connection is lost.
@@ -2007,26 +2048,28 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         '''Receive event positions'''
         # Lock access to the position dicts. This is called in sub-thread and
         # can kick in at any time
-        with self._lock_pos:
-            try:
-                if not self._event_accdownload.is_set():  # 1st event seen
-                    position = Position(float(pos), float(avgCost))
-                    logger.debug(f"POSITIONS INITIAL: {self.positions}")
+        try:
+            if not self._event_accdownload.is_set():  # 1st event seen
+                position = Position(float(pos), float(avgCost))
+                logger.debug(f"POSITIONS INITIAL: {self.positions}")
+                with self._lock_pos:
                     self.positions[contract.conId] = position
-                else:
+            else:
+                with self._lock_pos:
                     position = self.positions[contract.conId]
-                    logger.debug(f"POSITION UPDATE: {position}")
-                    if not position.fix(float(pos), avgCost):
-                        err = ('The current calculated position and '
-                            'the position reported by the broker do not match. '
-                            'Operation can continue, but the trades '
-                            'calculated in the strategy may be wrong')
+                    fix_result = position.fix(float(pos), avgCost)
+                logger.debug(f"POSITION UPDATE: {position}")
+                if not fix_result:
+                    err = ('The current calculated position and '
+                        'the position reported by the broker do not match. '
+                        'Operation can continue, but the trades '
+                        'calculated in the strategy may be wrong')
 
-                        self.notifs.put((err, (), {}))
+                    self.notifs.put((err, (), {}))
 
-                    # self.broker.push_portupdate()
-            except Exception as e:
-                logger.exception(f"Exception: {e}")
+                # self.broker.push_portupdate()
+        except Exception as e:
+            logger.exception(f"Exception: {e}")
 
     def positionEnd(self):
         logger.debug(f"positionEnd")
@@ -2039,7 +2082,8 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         '''
         if account is None:
             self._event_managed_accounts.wait()
-            account = self.managed_accounts[0]
+            with self._lock_managed_acc:
+                account = self.managed_accounts[0]
 
         self.conn.reqAccountUpdates(subscribe, bytes(account))
 
@@ -2060,29 +2104,31 @@ class IBStore(with_metaclass(MetaSingleton, object)):
                         realizedPNL, accountName):
         # Lock access to the position dicts. This is called in sub-thread and
         # can kick in at any time
-        with self._lock_pos:
-            try:
-                if not self._event_accdownload.is_set():  # 1st event seen
-                    position = Position(float(pos), float(averageCost))
-                    logger.debug(f"POSITIONS INITIAL: {self.positions}")
-                    # self.positions[contract.conId] = position
+        try:
+            if not self._event_accdownload.is_set():  # 1st event seen
+                position = Position(float(pos), float(averageCost))
+                logger.debug(f"POSITIONS INITIAL: {self.positions}")
+                # self.positions[contract.conId] = position
+                with self._lock_pos:
                     self.positions.setdefault(contract.conId, position)
-                else:
+            else:
+                with self._lock_pos:
                     position = self.positions[contract.conId]
-                    logger.debug(f"POSITION UPDATE: {position}")
-                    if not position.fix(float(pos), averageCost):
-                        err = ('The current calculated position and '
-                            'the position reported by the broker do not match. '
-                            'Operation can continue, but the trades '
-                            'calculated in the strategy may be wrong')
+                    fix_result = position.fix(float(pos), averageCost)
+                logger.debug(f"POSITION UPDATE: {position}")
+                if not fix_result:
+                    err = ('The current calculated position and '
+                        'the position reported by the broker do not match. '
+                        'Operation can continue, but the trades '
+                        'calculated in the strategy may be wrong')
 
-                        self.notifs.put((err, (), {}))
+                    self.notifs.put((err, (), {}))
 
-                    # Flag signal to broker at the end of account download
-                    # self.port_update = True
-                    self.broker.push_portupdate()
-            except Exception as e:
-                logger.exception(f"Exception: {e}")
+                # Flag signal to broker at the end of account download
+                # self.port_update = True
+                self.broker.push_portupdate()
+        except Exception as e:
+            logger.exception(f"Exception: {e}")
 
     def getposition(self, contract, clone=False):
         # Lock access to the position dicts. This is called from main thread
@@ -2098,11 +2144,12 @@ class IBStore(with_metaclass(MetaSingleton, object)):
     def updateAccountValue(self, key, value, currency, accountName):
         # Lock access to the dicts where values are updated. This happens in a
         # sub-thread and could kick it at anytime
+        try:
+            value = float(value)
+        except ValueError:
+            value = value
+
         with self._lock_accupd:
-            try:
-                value = float(value)
-            except ValueError:
-                value = value
 
             self.acc_upds[accountName][key][currency] = value
 
@@ -2127,26 +2174,33 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         # if self.connected():
         #     self._event_accdownload.wait()
         # Lock access to acc_cash to avoid an event intefering
-        with self._lock_acc_update:
-            if account is None:
-                # wait for the managedAccount Messages
-                # if self.connected():
-                #     self._event_managed_accounts.wait()
+        if account is None:
+            # wait for the managedAccount Messages
+            # if self.connected():
+            #     self._event_managed_accounts.wait()
+            with self._lock_managed_acc:
+                acc_count = len(self.managed_accounts)
+                if acc_count == 1:
+                    managed_account = self.managed_accounts[0]
 
-                if not self.managed_accounts:
+            if acc_count == 0:
+                with self._lock_accupd:
                     return self.acc_upds.copy()
 
-                elif len(self.managed_accounts) > 1:
+            elif acc_count > 1:
+                with self._lock_accupd:
                     return self.acc_upds.copy()
 
-                # Only 1 account, fall through to return only 1
-                account = self.managed_accounts[0]
+            # Only 1 account, fall through to return only 1
+            account = managed_account
 
-            try:
+        try:
+            with self._lock_accupd:
                 return self.acc_upds[account].copy()
-            except KeyError:
-                pass
+        except KeyError:
+            pass
 
+        with self._lock_accupd:
             return self.acc_upds.copy()
 
     def get_acc_value(self, account=None):
@@ -2163,20 +2217,24 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         # before the value can be returned to the calling client
         # Lock access to acc_cash to avoid an event intefering
 
-        with self._lock_acc_update:
-            if account is None:
-                if not self.managed_accounts:
-                    return float()
-                elif len(self.managed_accounts) > 1:
-                    return sum(self.acc_value.values())
+        if account is None:
+            with self._lock_managed_acc:
+                acc_count = len(self.managed_accounts)
+                if acc_count == 1:
+                    managed_account = self.managed_accounts[0]
 
-                # Only 1 account, fall through to return only 1
-                account = self.managed_accounts[0]
-                
-            try:
+            if acc_count == 0:
+                return float()
+            elif acc_count > 1:
+                return sum(self.acc_value.values())
+
+            account = managed_account
+            
+        try:
+            with self._lock_accupd:
                 return self.acc_value[account]
-            except KeyError:
-                pass
+        except KeyError:
+            pass
 
         return float()
 
@@ -2195,22 +2253,27 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         # if self.connected():
         #     self._event_accdownload.wait()
         # Lock access to acc_cash to avoid an event intefering
-        with self._lock_accupd:
-            if account is None:
-                # # wait for the managedAccount Messages
-                # if self.connected():
-                #     self._event_managed_accounts.wait()
+        if account is None:
+            # # wait for the managedAccount Messages
+            # if self.connected():
+            #     self._event_managed_accounts.wait()
 
-                if not self.managed_accounts:
-                    return float()
+            with self._lock_managed_acc:
+                acc_count = len(self.managed_accounts)
+                if acc_count == 1:
+                    managed_account = self.managed_accounts[0]
 
-                elif len(self.managed_accounts) > 1:
-                    return sum(self.acc_cash.values())
+            if acc_count == 0:
+                return float()
 
-                # Only 1 account, fall through to return only 1
-                account = self.managed_accounts[0]
+            elif acc_count > 1:
+                return sum(self.acc_cash.values())
 
-            try:
+            # Only 1 account, fall through to return only 1
+            account = managed_account
+
+        try:
+            with self._lock_accupd:
                 return self.acc_cash[account]
-            except KeyError:
-                pass
+        except KeyError:
+            pass
