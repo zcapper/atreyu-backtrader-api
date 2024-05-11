@@ -34,7 +34,7 @@ import bisect
 from backtrader import TimeFrame, Position
 from backtrader.metabase import MetaParams  # type: ignore
 from backtrader.utils.py3 import bytes, bstr, queue, with_metaclass, long  # type: ignore
-from backtrader.utils import AutoDict, UTC  # type: ignore
+from backtrader.utils import AutoDict  # type: ignore
 
 # import official ibapi
 from ibapi.client import EClient
@@ -42,6 +42,7 @@ from ibapi.wrapper import EWrapper
 from ibapi.contract import Contract
 from ibapi.ticktype import TickTypeEnum
 import logging
+import pytz
 
 bytes = bstr  # py2/3 need for ibpy
 logger = logging.getLogger(__name__)
@@ -1234,10 +1235,11 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             duration = durations[-1]
 
             # Store the calculated data
-            self.histexreq[tickerId] = dict(
-                contract=contract, enddate=enddate, begindate=intdate,
-                timeframe=timeframe, compression=compression,
-                what=what, useRTH=useRTH, tz=tz, sessionend=sessionend)
+            with self._lock_histdata:
+                self.histexreq[tickerId] = dict(
+                    contract=contract, enddate=enddate, begindate=intdate,
+                    timeframe=timeframe, compression=compression,
+                    what=what, useRTH=useRTH, tz=tz, sessionend=sessionend)
 
         barsize = self.tfcomp_to_size(timeframe, compression)
         with self._lock_histdata:
@@ -1622,7 +1624,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
                 tz = self.histtz[tickerId]
             if tz:
                 dteostz = tz.localize(dteos)
-                dteosutc = dteostz.astimezone(UTC).replace(tzinfo=None)
+                dteosutc = dteostz.astimezone(pytz.utc)
                 # When requesting for example daily bars, the current day
                 # will be returned with the already happened data. If the
                 # session end were added, the new ticks wouldn't make it
@@ -1630,10 +1632,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             else:
                 dteosutc = dteos
 
-            if dteosutc <= datetime.utcnow():
-                dt = dteosutc
-
-            msg.date = dt
+            msg.date = dteosutc
         else:
             msg.date = datetime.utcfromtimestamp(long(dtstr))
 
