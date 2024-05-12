@@ -28,7 +28,6 @@ import itertools
 import random
 import threading
 import time
-import bisect
 import math
 
 from backtrader import TimeFrame, Position
@@ -1644,10 +1643,15 @@ class IBStore(with_metaclass(MetaSingleton, object)):
 
         dtstr = msg.date  # Format when string req: YYYYMMDD[  HH:MM:SS] or 20240510 09:29:30 US/Eastern
         has_seconds = False
+        has_timezone = False
+        timezone = None
         split_dtstr = dtstr.split(" ")
         if len(split_dtstr) == 3:
-            dtstr = dtstr.rsplit(" ", 1)[0]
+            dtstr_list = dtstr.rsplit(" ", 1)
+            dtstr = dtstr_list[0]
+            timezone = dtstr_list[1]
             has_seconds = True
+            has_timezone = True
         elif len(split_dtstr) == 2:
             has_seconds = True
 
@@ -1658,22 +1662,27 @@ class IBStore(with_metaclass(MetaSingleton, object)):
                 sessionend = self.histsend[tickerId]
             if has_seconds:
                 dt = datetime.datetime.strptime(dtstr, '%Y%m%d %H:%M:%S')
+                dteos = dt
             else:
                 dt = datetime.datetime.strptime(dtstr, '%Y%m%d')
-            dteos = datetime.datetime.combine(dt, sessionend)
+                dteos = datetime.datetime.combine(dt, sessionend)
             with self._lock_histdata:
                 tz = self.histtz[tickerId]
             if tz:
-                dteostz = tz.localize(dteos)
-                dteosutc = dteostz.astimezone(pytz.utc)
+                if has_timezone:
+                    date_tz = pytz.timezone(timezone)
+                    dteostz = date_tz.localize(dteos)
+                else:
+                    dteostz = tz.localize(dteos)
+                # dteosutc = dteostz.astimezone(pytz.utc)
                 # When requesting for example daily bars, the current day
                 # will be returned with the already happened data. If the
                 # session end were added, the new ticks wouldn't make it
                 # through, because they happen before the end of time
             else:
-                dteosutc = dteos
+                dteostz = dt
 
-            msg.date = dteosutc
+            msg.date = dteostz
         else:
             msg.date = datetime.datetime.utcfromtimestamp(long(dtstr))
 
