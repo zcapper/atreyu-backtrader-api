@@ -739,6 +739,10 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         },
     })
 
+    MAX_DURATION = {
+        'S': 86400,
+    }
+
     TF2BARSIZE = collections.OrderedDict({
         TimeFrame.Seconds: (
             (1, '1 S', '1 secs'),
@@ -748,19 +752,19 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             (30, '30 S', '30 secs'),
         ),
         TimeFrame.Minutes: (
-            (1, '1 M', '1 min'),
-            (2, '2 M', '2 mins'),
-            (3, '3 M', '3 mins'),
-            (5, '5 M', '5 mins'),
-            (10, '10 M', '10 mins'),
-            (15, '15 M', '15 mins'),
-            (20, '20 M', '20 mins'),
-            (30, '30 M', '30 mins'),
-            (60, '1 H', '1 hour'),
-            (120, '2 H', '2 hours'),
-            (180, '3 H', '3 hours'),
-            (240, '4 H', '4 hours'),
-            (480, '8 H', '8 hours'),
+            (1, '60 S', '1 min'),
+            (2, '120 S', '2 mins'),
+            (3, '90 S', '3 mins'),
+            (5, '300 S', '5 mins'),
+            (10, '600 S', '10 mins'),
+            (15, '900 S', '15 mins'),
+            (20, '1200 S', '20 mins'),
+            (30, '1800 S', '30 mins'),
+            (60, '3600 S', '1 hour'),
+            (120, '7200 S', '2 hrs'),
+            (180, '10800 S', '3 hrs'),
+            (240, '14400 S', '4 hrs'),
+            (480, '28800 S', '8 hrs'),
         ),
         TimeFrame.Days: (
             (1, '1 D', '1 day'),
@@ -1770,7 +1774,12 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         if dim == 'S':
             # The step is base_size seconds
             value = math.ceil(seconds / base_size) * base_size
-            return dtbegin + datetime.timedelta(seconds=value), f"{value} S"
+            # ib supports duration in 86400 seconds
+            if value > IBStore.MAX_DURATION['S']:
+                value = math.ceil(value / 86400)
+                return dtbegin + datetime.timedelta(days=value), f"{value} D"
+            else:
+                return dtbegin + datetime.timedelta(seconds=value), f"{value} S"
         elif dim == 'D':
             value = math.ceil(seconds/ 86400 / base_size) * base_size
             return dtbegin + datetime.timedelta(days=value), f"{value} D"
