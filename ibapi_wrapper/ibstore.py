@@ -23,13 +23,13 @@ from __future__ import (absolute_import, division, print_function,
 
 import collections
 from copy import copy 
-from datetime import date, datetime, timedelta
-import inspect
+import datetime
 import itertools
 import random
 import threading
 import time
 import bisect
+import math
 
 from backtrader import TimeFrame, Position
 from backtrader.metabase import MetaParams  # type: ignore
@@ -99,11 +99,11 @@ class OrderStatusMsg(object):
 def _ts2dt(tstamp=None):
     # Transforms a RTVolume timestamp to a datetime object
     if not tstamp:
-        return datetime.utcnow()
+        return datetime.datetime.utcnow()
 
     sec, msec = divmod(long(tstamp), 1000)
     usec = msec * 1000
-    return datetime.utcfromtimestamp(sec).replace(microsecond=usec)
+    return datetime.datetime.utcfromtimestamp(sec).replace(microsecond=usec)
 
 
 class RTVolume(object):
@@ -152,7 +152,7 @@ class RTPrice(object):
         self.price = price
 
         # Set price to when we received it
-        self.datetime = datetime.now()
+        self.datetime = datetime.datetime.now()
 
         if tmoffset is not None:
             self.datetime += tmoffset
@@ -173,7 +173,7 @@ class RTSize(object):
         self.size = size
 
         # Set price to when we received it
-        self.datetime = datetime.now()
+        self.datetime = datetime.datetime.now()
 
         if tmoffset is not None:
             self.datetime += tmoffset
@@ -226,7 +226,7 @@ class HistTick(object):
     '''Set historicalTick object: 'MIDPOINT', 'BID_ASK', 'TRADES' 
     '''
     def __init__(self, tick, dataType):
-        self.date = datetime.utcfromtimestamp(tick.time)
+        self.date = datetime.datetime.utcfromtimestamp(tick.time)
         self.tickType = tick.tickType if hasattr(tick, 'tickType') else int(0)
         self.dataType = dataType
         if dataType == 'RT_TICK_MIDPOINT':
@@ -255,7 +255,7 @@ class RTTickLast(object):
     '''
     def __init__(self, tickType, time, price, size, tickAtrribLast, exchange, specialConditions):
         self.dataType = "RT_TICK_LAST"
-        self.datetime = datetime.utcfromtimestamp(time)
+        self.datetime = datetime.datetime.utcfromtimestamp(time)
         # self.tickType = TickTypeEnum.to_str(tickType)
         self.tickType = tickType
         self.price = price
@@ -275,7 +275,7 @@ class RTTickBidAsk(object):
     '''
     def __init__(self, time, bidPrice, askPrice, bidSize, askSize, tickAttribBidAsk):
         self.dataType = "RT_TICK_BID_ASK"
-        self.datetime = datetime.utcfromtimestamp(time)
+        self.datetime = datetime.datetime.utcfromtimestamp(time)
         self.bidPrice = bidPrice
         self.askPrice = askPrice
         self.bidSize = float(bidSize)
@@ -293,7 +293,7 @@ class RTTickMidPoint(object):
     '''
     def __init__(self, time, midPoint):
         self.dataType = "RT_TICK_MIDPOINT"
-        self.datetime = datetime.utcfromtimestamp(time)
+        self.datetime = datetime.datetime.utcfromtimestamp(time)
         self.midPoint = midPoint
         self.vars = vars()
 
@@ -649,6 +649,134 @@ class IBStore(with_metaclass(MetaSingleton, object)):
     BrokerCls = None  # broker class will autoregister
     DataCls = None  # data class will auto register
 
+    BAR_SIZE = collections.OrderedDict({
+        '1 secs': {
+            'max_duration': 1800,
+            'max_duration_name': 'S',
+        },
+        '5 secs': {
+            'max_duration': 3600,
+            'max_duration_name': 'S',
+        },
+        '10 secs': {
+            'max_duration': 10800,
+            'max_duration_name': 'S',
+        },
+        '15 secs': {
+            'max_duration': 14400,
+            'max_duration_name': 'S',
+        },
+        '30 secs': {
+            'max_duration': 28800,
+            'max_duration_name': 'S',
+        },
+        '1 min': {
+            'max_duration': 1,
+            'max_duration_name': 'D',
+        },
+        '2 mins': {
+            'max_duration': 2,
+            'max_duration_name': 'D',
+        },
+        '3 mins': {
+            'max_duration': 1,
+            'max_duration_name': 'W',
+        },
+        '5 mins': {
+            'max_duration': 1,
+            'max_duration_name': 'W',
+        },
+        '10 mins': {
+            'max_duration': 1,
+            'max_duration_name': 'W',
+        },
+        '15 mins': {
+            'max_duration': 2,
+            'max_duration_name': 'W',
+        },
+        '20 mins': {
+            'max_duration': 2,
+            'max_duration_name': 'W',
+        },
+        '30 mins': {
+            'max_duration': 1,
+            'max_duration_name': 'M',
+        },
+        '1 hour': {
+            'max_duration': 1,
+            'max_duration_name': 'M',
+        },
+        '2 hours': {
+            'max_duration': 1,
+            'max_duration_name': 'M',
+        },
+        '3 hours': {
+            'max_duration': 1,
+            'max_duration_name': 'M',
+        },
+        '4 hours': {
+            'max_duration': 1,
+            'max_duration_name': 'M',
+        },
+        '8 hours': {
+            'max_duration': 1,
+            'max_duration_name': 'M',
+        },
+        '1 day': {
+            'max_duration': 1,
+            'max_duration_name': 'Y',
+        },
+        '1 week': {
+            'max_duration': 1,
+            'max_duration_name': 'Y',
+        },
+        '1 month': {
+            'max_duration': 1,
+            'max_duration_name': 'Y',
+        },
+        '1 year': {
+            'max_duration': 1,
+            'max_duration_name': 'Y',
+        },
+    })
+
+    TF2BARSIZE = collections.OrderedDict({
+        TimeFrame.Seconds: (
+            (1, '1 S', '1 secs'),
+            (5, '5 S', '5 secs'),
+            (10, '10 S', '10 secs'),
+            (15, '15 S', '15 secs'),
+            (30, '30 S', '30 secs'),
+        ),
+        TimeFrame.Minutes: (
+            (1, '1 M', '1 min'),
+            (2, '2 M', '2 mins'),
+            (3, '3 M', '3 mins'),
+            (5, '5 M', '5 mins'),
+            (10, '10 M', '10 mins'),
+            (15, '15 M', '15 mins'),
+            (20, '20 M', '20 mins'),
+            (30, '30 M', '30 mins'),
+            (60, '1 H', '1 hour'),
+            (120, '2 H', '2 hours'),
+            (180, '3 H', '3 hours'),
+            (240, '4 H', '4 hours'),
+            (480, '8 H', '8 hours'),
+        ),
+        TimeFrame.Days: (
+            (1, '1 D', '1 day'),
+        ),
+        TimeFrame.Weeks: (
+            (1, '1 W', '1 week'),
+        ),
+        TimeFrame.Months: (
+            (1, '1 M', '1 month'),
+        ),
+        TimeFrame.Years: (
+            (1, '1 Y', '1 year'),
+        ),
+    })
+
     params = (
         ('host', '127.0.0.1'),
         ('port', 7496),
@@ -693,7 +821,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         self.ccount = 0  # requests to start (from cerebro or datas)
 
         self._lock_tmoffset = threading.Lock()
-        self.tmoffset = timedelta()  # to control time difference with server
+        self.tmoffset = datetime.timedelta()  # to control time difference with server
 
         # Structures to hold datas requests
         self.qs = collections.OrderedDict()  # key: tickerId -> queues
@@ -739,36 +867,6 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         except Exception as e:
             print(f"TWS Failed to connect: {e}")
 
-        # This utility key function transforms a barsize into a:
-        #   (Timeframe, Compression) tuple which can be sorted
-        def keyfn(x):
-            n, t = x.split()
-            tf, comp = self._sizes[t]
-            return (tf, int(n) * comp)
-
-        # This utility key function transforms a duration into a:
-        #   (Timeframe, Compression) tuple which can be sorted
-        def key2fn(x):
-            n, d = x.split()
-            tf = self._dur2tf[d]
-            return (tf, int(n))
-
-        # Generate a table of reverse durations
-        self.revdur = collections.defaultdict(list)
-        # The table (dict) is a ONE to MANY relation of
-        #   duration -> barsizes
-        # Here it is reversed to get a ONE to MANY relation of
-        #   barsize -> durations
-        for duration, barsizes in self._durations.items():
-            for barsize in barsizes:
-                self.revdur[keyfn(barsize)].append(duration)
-
-        # Once managed, sort the durations according to real duration and not
-        # to the text form using the utility key above
-        for barsize in self.revdur:
-            self.revdur[barsize].sort(key=key2fn)
-
-    
     def start(self, data=None, broker=None):
         logger.info(f"IBStore start, data: {data} broker: {broker}")
         self.reconnect(fromstart=True)  # reconnect should be an invariant
@@ -1064,9 +1162,9 @@ class IBStore(with_metaclass(MetaSingleton, object)):
     def currentTime(self, time):
         if not self.p.timeoffset:  # only if requested ... apply timeoffset
             return
-        curtime = datetime.fromtimestamp(float(time))
+        curtime = datetime.datetime.fromtimestamp(float(time))
         with self._lock_tmoffset:
-            self.tmoffset = curtime - datetime.now()
+            self.tmoffset = curtime - datetime.datetime.now()
 
         threading.Timer(self.p.timerefresh, self.reqCurrentTime).start()
     
@@ -1188,31 +1286,15 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             return self.getTickerQueue(start=True)
 
         if enddate is None:
-            enddate = datetime.utcnow().date()
+            raise ValueError('enddate must be specified when request historical Data')
 
         if begindate is None:
-            duration = self.getmaxduration(timeframe, compression)
-            if duration is None:
-                err = ('No duration for historical data request for '
-                       'timeframe/compresison')
-                self.notifs.put((err, (), kwargs))
-                return self.getTickerQueue(start=True)
-            barsize = self.tfcomp_to_size(timeframe, compression)
-            if barsize is None:
-                err = ('No supported barsize for historical data request for '
-                       'timeframe/compresison')
-                self.notifs.put((err, (), kwargs))
-                return self.getTickerQueue(start=True)
-
-            return self.reqHistoricalData(contract=contract, enddate=enddate,
-                                          duration=duration, barsize=barsize,
-                                          what=what, useRTH=useRTH, tz=tz,
-                                          sessionend=sessionend)
+            raise ValueError('begindate must be specified when request historical Data')
 
         # Check if the requested timeframe/compression is supported by IB
-        durations = self.getdurations(timeframe, compression)
-        if not durations:  # return a queue and put a None in it
-            return self.getTickerQueue(start=True)
+        data_compression, base_duration, barsize = self.get_barsize(timeframe, compression)
+        if not data_compression:  # return a queue and put a None in it
+            raise ValueError(f'Invalid timeframe/compression {timeframe}/{compression}')
 
         # Get or reuse a queue
         if tickerId is None:
@@ -1223,25 +1305,13 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             logger.debug(f"Reuse tickerId: {tickerId} Q: {q}")
 
         # Get the best possible duration to reduce number of requests
-        duration = None
-        for dur in durations:
-            intdate = self.dt_plus_duration(begindate, dur)
-            if intdate >= enddate:
-                intdate = enddate
-                duration = dur  # begin -> end fits in single request
-                break
+        intdate, duration = self.dt_plus_duration(begindate, enddate, base_duration)
+        if intdate >= enddate:
+            intdate = enddate
 
         if duration is None:  # no duration large enough to fit the request
-            duration = durations[-1]
+            raise RuntimeError(f"Cannot find historical duration for {begindate} to {enddate} on {base_duration}")
 
-            # Store the calculated data
-            with self._lock_histdata:
-                self.histexreq[tickerId] = dict(
-                    contract=contract, enddate=enddate, begindate=intdate,
-                    timeframe=timeframe, compression=compression,
-                    what=what, useRTH=useRTH, tz=tz, sessionend=sessionend)
-
-        barsize = self.tfcomp_to_size(timeframe, compression)
         with self._lock_histdata:
             self.histfmt[tickerId] = timeframe >= TimeFrame.Days
             self.histsend[tickerId] = sessionend
@@ -1259,9 +1329,9 @@ class IBStore(with_metaclass(MetaSingleton, object)):
 
         what = what or 'TRADES'
 
-        # print("Request Historical Data, parameters are:")
-        # print("tickerId: ", tickerId, "contract: ", contract, "enddate: ", intdate, "begindate: ", begindate, "duration: ",
-        #       duration, "barsize: ", barsize, "what: ", what, "useRTH: ", useRTH, "tz: ", tz)
+        print("Request Historical Data, parameters are:")
+        print("tickerId: ", tickerId, "contract: ", contract, "enddate: ", intdate, "begindate: ", begindate, "duration: ",
+              duration, "barsize: ", barsize, "what: ", what, "useRTH: ", useRTH, "tz: ", tz)
         self.conn.reqHistoricalData(
             tickerId,
             contract,
@@ -1276,46 +1346,6 @@ class IBStore(with_metaclass(MetaSingleton, object)):
 
         return q
     
-    def reqHistoricalData(self, contract, enddate, duration, barsize,
-                          what=None, useRTH=False, tz='', sessionend=None):
-        '''Proxy to reqHistorical Data'''
-
-        # get a ticker/queue for identification/data delivery
-        tickerId, q = self.getTickerQueue()
-
-        if contract.secType in ['CASH', 'CFD']:
-            with self._lock_q:
-                self.iscash[tickerId] = True
-            if not what:
-                what = 'BID'  # TRADES doesn't work
-            elif what == 'ASK':
-                with self._lock_q:
-                    self.iscash[tickerId] = 2
-        else:
-            what = what or 'TRADES'
-
-        # split barsize "x time", look in sizes for (tf, comp) get tf
-        tframe = self._sizes[barsize.split()[1]][0]
-        with self._lock_histdata:
-            self.histfmt[tickerId] = tframe >= TimeFrame.Days
-            self.histsend[tickerId] = sessionend
-            self.histtz[tickerId] = tz
-
-        self.conn.reqHistoricalData(
-            tickerId,
-            contract,
-            # bytes(enddate.strftime('%Y%m%d %H:%M:%S') + ' GMT'),
-            bytes(enddate.strftime('%Y%m%d-%H:%M:%S')),
-            bytes(duration),
-            bytes(barsize),
-            bytes(what),
-            int(useRTH),
-            2,
-            False,
-            [])
-
-        return q
-
     def reqHistoricalTicksEx(self, contract, enddate=None, begindate=None,
                             what=None, useRTH=False, tz='',
                             tickerId=None):
@@ -1336,9 +1366,9 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             return self.getTickerQueue(start=True)
 
         if enddate is None and begindate is None:
-            today = datetime.utcnow().date()
-            begindate = datetime(today.year, today.month, today.day)
-            # begindate = datetime.now()
+            today = datetime.datetime.utcnow().date()
+            begindate = datetime.datetime(today.year, today.month, today.day)
+            # begindate = datetime.datetime.now()
 
         logger.debug(f"begin: {begindate} end: {enddate}")
 
@@ -1598,7 +1628,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         Not valid for cash markets
         '''
         # Get a naive localtime object
-        msg.time = datetime.utcfromtimestamp(float(msg.time))
+        msg.time = datetime.datetime.utcfromtimestamp(float(msg.time))
         with self._lock_q:
             q = self.qs[msg.reqId]
         q.put(msg)
@@ -1618,8 +1648,8 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         if has_histfmt:
             with self._lock_histdata:
                 sessionend = self.histsend[tickerId]
-            dt = datetime.strptime(dtstr, '%Y%m%d')
-            dteos = datetime.combine(dt, sessionend)
+            dt = datetime.datetime.strptime(dtstr, '%Y%m%d')
+            dteos = datetime.datetime.combine(dt, sessionend)
             with self._lock_histdata:
                 tz = self.histtz[tickerId]
             if tz:
@@ -1634,7 +1664,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
 
             msg.date = dteosutc
         else:
-            msg.date = datetime.utcfromtimestamp(long(dtstr))
+            msg.date = datetime.datetime.utcfromtimestamp(long(dtstr))
 
         q.put(msg)
     
@@ -1686,165 +1716,19 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             q = self.qs[tickerId]
         q.put(tick)
 
-    # The _durations are meant to calculate the needed historical data to
-    # perform backfilling at the start of a connetion or a connection is lost.
-    # Using a timedelta as a key allows to quickly find out which bar size
-    # bar size (values in the tuples int the dict) can be used.
+    def get_barsize(self,  timeframe, compression):
+        """
+        frome timeframe and compression get the possible durations
+        """
+        # Get TF2BARSIZE[timeframe], find the proper barsize for compression
+        bar_size_info = IBStore.TF2BARSIZE[timeframe]
+        for comp_info in reversed(bar_size_info):
+            # the base of the compression in TF2BARSIZE is the 1 under each key, 
+            # so we can find the proper compression anyway
+            if comp_info[0] <= compression and compression % comp_info[0] == 0:
+                return comp_info[0], comp_info[1], comp_info[2]
 
-    _durations = dict([
-        # 60 seconds - 1 min
-        ('60 S',
-         ('1 secs', '5 secs', '10 secs', '15 secs', '30 secs',
-          '1 min')),
-
-        # 120 seconds - 2 mins
-        ('120 S',
-         ('1 secs', '5 secs', '10 secs', '15 secs', '30 secs',
-          '1 min', '2 mins')),
-
-        # 180 seconds - 3 mins
-        ('180 S',
-         ('1 secs', '5 secs', '10 secs', '15 secs', '30 secs',
-          '1 min', '2 mins', '3 mins')),
-
-        # 300 seconds - 5 mins
-        ('300 S',
-         ('1 secs', '5 secs', '10 secs', '15 secs', '30 secs',
-          '1 min', '2 mins', '3 mins', '5 mins')),
-
-        # 600 seconds - 10 mins
-        ('600 S',
-         ('1 secs', '5 secs', '10 secs', '15 secs', '30 secs',
-          '1 min', '2 mins', '3 mins', '5 mins', '10 mins')),
-
-        # 900 seconds - 15 mins
-        ('900 S',
-         ('1 secs', '5 secs', '10 secs', '15 secs', '30 secs',
-          '1 min', '2 mins', '3 mins', '5 mins', '10 mins', '15 mins')),
-
-        # 1200 seconds - 20 mins
-        ('1200 S',
-         ('1 secs', '5 secs', '10 secs', '15 secs', '30 secs',
-          '1 min', '2 mins', '3 mins', '5 mins', '10 mins', '15 mins',
-          '20 mins')),
-
-        # 1800 seconds - 30 mins
-        ('1800 S',
-         ('1 secs', '5 secs', '10 secs', '15 secs', '30 secs',
-          '1 min', '2 mins', '3 mins', '5 mins', '10 mins', '15 mins',
-          '20 mins', '30 mins')),
-
-        # 3600 seconds - 1 hour
-        ('3600 S',
-         ('5 secs', '10 secs', '15 secs', '30 secs',
-          '1 min', '2 mins', '3 mins', '5 mins', '10 mins', '15 mins',
-          '20 mins', '30 mins',
-          '1 hour')),
-
-        # 7200 seconds - 2 hours
-        ('7200 S',
-         ('5 secs', '10 secs', '15 secs', '30 secs',
-          '1 min', '2 mins', '3 mins', '5 mins', '10 mins', '15 mins',
-          '20 mins', '30 mins',
-          '1 hour', '2 hours')),
-
-        # 10800 seconds - 3 hours
-        ('10800 S',
-         ('10 secs', '15 secs', '30 secs',
-          '1 min', '2 mins', '3 mins', '5 mins', '10 mins', '15 mins',
-          '20 mins', '30 mins',
-          '1 hour', '2 hours', '3 hours')),
-
-        # 14400 seconds - 4 hours
-        ('14400 S',
-         ('15 secs', '30 secs',
-          '1 min', '2 mins', '3 mins', '5 mins', '10 mins', '15 mins',
-          '20 mins', '30 mins',
-          '1 hour', '2 hours', '3 hours', '4 hours')),
-
-        # 28800 seconds - 8 hours
-        ('28800 S',
-         ('30 secs',
-          '1 min', '2 mins', '3 mins', '5 mins', '10 mins', '15 mins',
-          '20 mins', '30 mins',
-          '1 hour', '2 hours', '3 hours', '4 hours', '8 hours')),
-
-        # 1 days
-        ('1 D',
-         ('1 min', '2 mins', '3 mins', '5 mins', '10 mins', '15 mins',
-          '20 mins', '30 mins',
-          '1 hour', '2 hours', '3 hours', '4 hours', '8 hours',
-          '1 day')),
-
-        # 2 days
-        ('2 D',
-         ('2 mins', '3 mins', '5 mins', '10 mins', '15 mins',
-          '20 mins', '30 mins',
-          '1 hour', '2 hours', '3 hours', '4 hours', '8 hours',
-          '1 day')),
-
-        # 1 weeks
-        ('1 W',
-         ('3 mins', '5 mins', '10 mins', '15 mins',
-          '20 mins', '30 mins',
-          '1 hour', '2 hours', '3 hours', '4 hours', '8 hours',
-          '1 day', '1 W')),
-
-        # 2 weeks
-        ('2 W',
-         ('15 mins', '20 mins', '30 mins',
-          '1 hour', '2 hours', '3 hours', '4 hours', '8 hours',
-          '1 day', '1 W')),
-
-        # 1 months
-        ('1 M',
-         ('30 mins',
-          '1 hour', '2 hours', '3 hours', '4 hours', '8 hours',
-          '1 day', '1 W', '1 M')),
-
-        # 2+ months
-        ('2 M', ('1 day', '1 W', '1 M')),
-        ('3 M', ('1 day', '1 W', '1 M')),
-        ('4 M', ('1 day', '1 W', '1 M')),
-        ('5 M', ('1 day', '1 W', '1 M')),
-        ('6 M', ('1 day', '1 W', '1 M')),
-        ('7 M', ('1 day', '1 W', '1 M')),
-        ('8 M', ('1 day', '1 W', '1 M')),
-        ('9 M', ('1 day', '1 W', '1 M')),
-        ('10 M', ('1 day', '1 W', '1 M')),
-        ('11 M', ('1 day', '1 W', '1 M')),
-
-        # 1+ years
-        ('1 Y',  ('1 day', '1 W', '1 M')),
-    ])
-
-    # Sizes allow for quick translation from bar sizes above to actual
-    # timeframes to make a comparison with the actual data
-    _sizes = {
-        'secs': (TimeFrame.Seconds, 1),
-        'min': (TimeFrame.Minutes, 1),
-        'mins': (TimeFrame.Minutes, 1),
-        'hour': (TimeFrame.Minutes, 60),
-        'hours': (TimeFrame.Minutes, 60),
-        'day': (TimeFrame.Days, 1),
-        'W': (TimeFrame.Weeks, 1),
-        'M': (TimeFrame.Months, 1),
-    }
-
-    _dur2tf = {
-        'S': TimeFrame.Seconds,
-        'D': TimeFrame.Days,
-        'W': TimeFrame.Weeks,
-        'M': TimeFrame.Months,
-        'Y': TimeFrame.Years,
-    }
-
-    def getdurations(self,  timeframe, compression):
-        key = (timeframe, compression)
-        if key not in self.revdur:
-            return []
-
-        return self.revdur[key]
+        return None, None, None
 
     def getmaxduration(self, timeframe, compression):
         key = (timeframe, compression)
@@ -1855,132 +1739,32 @@ class IBStore(with_metaclass(MetaSingleton, object)):
 
         return None
 
-    def tfcomp_to_size(self, timeframe, compression):
-        if timeframe == TimeFrame.Months:
-            return '{} M'.format(compression)
+    def dt_plus_duration(self, dtbegin, dtend, base_duration):
+        size, dim = base_duration.split()
+        base_size = int(size)
 
-        if timeframe == TimeFrame.Weeks:
-            return '{} W'.format(compression)
-
-        if timeframe == TimeFrame.Days:
-            if not compression % 7:
-                return '{} W'.format(compression // 7)
-
-            return '{} day'.format(compression)
-
-        if timeframe == TimeFrame.Minutes:
-            if not compression % 60:
-                hours = compression // 60
-                return ('{} hour'.format(hours)) + ('s' * (hours > 1))
-
-            return ('{} min'.format(compression)) + ('s' * (compression > 1))
-
-        if timeframe == TimeFrame.Seconds:
-            return '{} secs'.format(compression)
-
-        # Microseconds or ticks
-        return None
-
-    def dt_plus_duration(self, dt, duration):
-        size, dim = duration.split()
-        size = int(size)
+        # TODO: max duration calculation
+        delta_time = dtend - dtbegin
+        # the minimum duration is 1 second
+        seconds = int(delta_time.total_seconds())
         if dim == 'S':
-            return dt + timedelta(seconds=size)
-
-        if dim == 'D':
-            return dt + timedelta(days=size)
-
-        if dim == 'W':
-            return dt + timedelta(days=size * 7)
-
-        if dim == 'M':
-            month = dt.month - 1 + size  # -1 to make it 0 based, readd below
-            years, month = divmod(month, 12)
-            return dt.replace(year=dt.year + years, month=month + 1)
-
-        if dim == 'Y':
-            return dt.replace(year=dt.year + size)
-
-        return dt  # could do nothing with it ... return it intact
-
-    def calcdurations(self, dtbegin, dtend):
-        '''Calculate a duration in between 2 datetimes'''
-        duration = self.histduration(dtbegin, dtend)
-
-        if duration[-1] == 'M':
-            m = int(duration.split()[0])
-            m1 = min(2, m)  # (2, 1) -> 1, (2, 7) -> 2. Bottomline: 1 or 2
-            m2 = max(1, m1)  # m1 can only be 1 or 2
-            checkdur = '{} M'.format(m2)
-        elif duration[-1] == 'Y':
-            checkdur = '1 Y'
+            # The step is base_size seconds
+            value = math.ceil(seconds / base_size) * base_size
+            return dtbegin + datetime.timedelta(seconds=value), f"{value} S"
+        elif dim == 'D':
+            value = math.ceil(seconds/ 86400 / base_size) * base_size
+            return dtbegin + datetime.timedelta(days=value), f"{value} D"
+        elif dim == 'W':
+            value = math.ceil(seconds / 604800 / base_size) * base_size
+            return dtbegin + datetime.timedelta(days=(value * 7)), f"{value} W"
+        elif dim == 'M':
+            value = math.ceil(seconds / 2592000 / base_size) * base_size
+            return dtbegin + datetime.timedelta(days=(value * 30)), f"{value} M"
+        elif dim == 'Y':
+            value = math.ceil(seconds / 31536000 / base_size) * base_size
+            return dtbegin + datetime.timedelta(days=(value * 365)), f"{value} Y"
         else:
-            checkdur = duration
-
-        sizes = self._durations[checkdur]
-        return duration, sizes
-
-    def calcduration(self, dtbegin, dtend):
-        '''Calculate a duration in between 2 datetimes. Returns single size'''
-        duration, sizes = self._calcdurations(dtbegin, dtend)
-        return duration, sizes[0]
-
-    
-    def histduration(self, dt1, dt2):
-        # Given two dates calculates the smallest possible duration according
-        # to the table from the Historical Data API limitations provided by IB
-        #
-        # Seconds: 'x S' (x: [60, 120, 180, 300, 600, 900, 1200, 1800, 3600,
-        #                     7200, 10800, 14400, 28800])
-        # Days: 'x D' (x: [1, 2]
-        # Weeks: 'x W' (x: [1, 2])
-        # Months: 'x M' (x: [1, 11])
-        # Years: 'x Y' (x: [1])
-
-        td = dt2 - dt1  # get a timedelta for calculations
-
-        # First: array of secs
-        tsecs = td.total_seconds()
-        secs = [60, 120, 180, 300, 600, 900, 1200, 1800, 3600, 7200, 10800,
-                14400, 28800]
-
-        idxsec = bisect.bisect_left(secs, tsecs)
-        if idxsec < len(secs):
-            return '{} S'.format(secs[idxsec])
-
-        tdextra = bool(td.seconds or td.microseconds)  # over days/weeks
-
-        # Next: 1 or 2 days
-        days = td.days + tdextra
-        if td.days <= 2:
-            return '{} D'.format(days)
-
-        # Next: 1 or 2 weeks
-        weeks, d = divmod(td.days, 7)
-        weeks += bool(d or tdextra)
-        if weeks <= 2:
-            return '{} W'.format(weeks)
-
-        # Get references to dt components
-        y2, m2, d2 = dt2.year, dt2.month, dt2.day
-        y1, m1, d1 = dt1.year, dt1.month, dt2.day
-
-        H2, M2, S2, US2 = dt2.hour, dt2.minute, dt2.second, dt2.microsecond
-        H1, M1, S1, US1 = dt1.hour, dt1.minute, dt1.second, dt1.microsecond
-
-        # Next: 1 -> 11 months (11 incl)
-        months = (y2 * 12 + m2) - (y1 * 12 + m1) + (
-            (d2, H2, M2, S2, US2) > (d1, H1, M1, S1, US1))
-        if months <= 1:  # months <= 11
-            return '1 M'  # return '{} M'.format(months)
-        elif months <= 11:
-            return '2 M'  # cap at 2 months to keep the table clean
-
-        # Next: years
-        # y = y2 - y1 + (m2, d2, H2, M2, S2, US2) > (m1, d1, H1, M1, S1, US1)
-        # return '{} Y'.format(y)
-
-        return '1 Y'  # to keep the table clean
+            return None, None
 
     def makecontract(self, symbol, sectype, exch, curr,
                      expiry='', strike=0.0, right='', mult=1, 
