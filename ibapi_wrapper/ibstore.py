@@ -1776,7 +1776,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             value = math.ceil(seconds / base_size) * base_size
             # ib supports duration in 86400 seconds
             if value > IBStore.MAX_DURATION['S']:
-                value = math.ceil(value / 86400)
+                value = math.ceil(value / IBStore.MAX_DURATION['S'])
                 return dtbegin + datetime.timedelta(days=value), f"{value} D"
             else:
                 return dtbegin + datetime.timedelta(seconds=value), f"{value} S"
