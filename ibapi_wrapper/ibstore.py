@@ -1313,7 +1313,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             raise RuntimeError(f"Cannot find historical duration for {begindate} to {enddate} on {base_duration}")
 
         with self._lock_histdata:
-            self.histfmt[tickerId] = timeframe >= TimeFrame.Days
+            self.histfmt[tickerId] = timeframe >= TimeFrame.Seconds
             self.histsend[tickerId] = sessionend
             self.histtz[tickerId] = tz
 
@@ -1642,13 +1642,24 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         with self._lock_q:
             q = self.qs[tickerId]
 
-        dtstr = msg.date  # Format when string req: YYYYMMDD[  HH:MM:SS]
+        dtstr = msg.date  # Format when string req: YYYYMMDD[  HH:MM:SS] or 20240510 09:29:30 US/Eastern
+        has_seconds = False
+        split_dtstr = dtstr.split(" ")
+        if len(split_dtstr) == 3:
+            dtstr = dtstr.rsplit(" ", 1)[0]
+            has_seconds = True
+        elif len(split_dtstr) == 2:
+            has_seconds = True
+
         with self._lock_histdata:
             has_histfmt = self.histfmt[tickerId]
         if has_histfmt:
             with self._lock_histdata:
                 sessionend = self.histsend[tickerId]
-            dt = datetime.datetime.strptime(dtstr, '%Y%m%d')
+            if has_seconds:
+                dt = datetime.datetime.strptime(dtstr, '%Y%m%d %H:%M:%S')
+            else:
+                dt = datetime.datetime.strptime(dtstr, '%Y%m%d')
             dteos = datetime.datetime.combine(dt, sessionend)
             with self._lock_histdata:
                 tz = self.histtz[tickerId]
