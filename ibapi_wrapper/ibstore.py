@@ -1328,9 +1328,9 @@ class IBStore(with_metaclass(MetaSingleton, object)):
 
         what = what or 'TRADES'
 
-        print("Request Historical Data, parameters are:")
-        print("tickerId: ", tickerId, "contract: ", contract, "enddate: ", intdate, "begindate: ", begindate, "duration: ",
-              duration, "barsize: ", barsize, "what: ", what, "useRTH: ", useRTH, "tz: ", tz)
+        # print("Request Historical Data, parameters are:")
+        # print("tickerId: ", tickerId, "contract: ", contract, "enddate: ", intdate, "begindate: ", begindate, "duration: ",
+        #       duration, "barsize: ", barsize, "what: ", what, "useRTH: ", useRTH, "tz: ", tz)
         self.conn.reqHistoricalData(
             tickerId,
             contract,
