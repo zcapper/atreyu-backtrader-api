@@ -424,6 +424,7 @@ class IBData(with_metaclass(MetaIBData, DataBase)):
             self._state = self._ST_START  # initial state for _load
         self._statelivereconn = False  # if reconnecting in live state
         self._subcription_valid = False  # subscription state
+        self._historical_ended = False  # historical data ended status
         self._storedmsg = dict()  # keep pending live message (under None)
 
         if not self.ib.connected():
@@ -635,6 +636,7 @@ class IBData(with_metaclass(MetaIBData, DataBase)):
                 dtend = msg.datetime if self._usertvol else msg.time
 
                 if self._timeframe != bt.TimeFrame.Ticks:
+                    self._historical_ended = False
                     self.qhist = self.ib.reqHistoricalDataEx(
                         contract=self.contract, enddate=dtend, begindate=dtbegin,
                         timeframe=self._timeframe, compression=self._compression,
@@ -642,6 +644,7 @@ class IBData(with_metaclass(MetaIBData, DataBase)):
                         sessionend=self.p.sessionend)
                 else:
                     # dtend = num2date(dtend)
+                    self._historical_ended = False
                     self.qhist = self.ib.reqHistoricalTicksEx(
                         contract=self.contract, enddate=dtend,
                         what=self.p.what, useRTH=self.p.useRTH, tz=self._tz,
@@ -653,7 +656,10 @@ class IBData(with_metaclass(MetaIBData, DataBase)):
 
             elif self._state == self._ST_HISTORBACK:
                 try:
-                    msg = self.qhist.get()
+                    if self._historical_ended:
+                        msg = self.qlive.get(timeout=self._qcheck)
+                    else:
+                        msg = self.qhist.get()
                 except queue.Empty:
                     if True:
                         if self.p.historical:  # only historical
@@ -667,6 +673,7 @@ class IBData(with_metaclass(MetaIBData, DataBase)):
                 if msg is None:  # Conn broken during historical/backfilling
                     # Situation not managed. Simply bail out
                     self._subcription_valid = False
+                    self._historical_ended = True
                     self.put_notification(self.DISCONNECTED)
                     return False  # error management cancelled the queue
 
@@ -737,10 +744,12 @@ class IBData(with_metaclass(MetaIBData, DataBase)):
                 dtbegin = num2date(self.fromdate)
 
             if self._timeframe == bt.TimeFrame.Ticks:
+                self._historical_ended = False
                 self.qhist = self.ib.reqHistoricalTicksEx(
                     contract=self.contract, enddate=dtend, begindate=dtbegin,
                     what=self.p.what, useRTH=self.p.useRTH, tz=self._tz)
             else:
+                self._historical_ended = False
                 self.qhist = self.ib.reqHistoricalDataEx(
                     contract=self.contract, enddate=dtend, begindate=dtbegin,
                     timeframe=self._timeframe, compression=self._compression,
