@@ -33,7 +33,7 @@ import math
 from backtrader import TimeFrame, Position
 from backtrader.metabase import MetaParams  # type: ignore
 from backtrader.utils.py3 import bytes, bstr, queue, with_metaclass, long  # type: ignore
-from backtrader.utils import AutoDict  # type: ignore
+from backtrader.utils import AutoDict, TZLocal  # type: ignore
 
 # import official ibapi
 from ibapi.client import EClient
@@ -837,6 +837,8 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         self.histsend = dict()  # holds sessionend (data time) for request
         self.histtz = dict()  # holds sessionend (data time) for request
 
+        self.realtz = dict()  # holds realtime bar timezone info
+
         self.acc_cash = AutoDict()  # current total cash per account
         self.acc_value = AutoDict()  # current total value per account
         self.acc_upds = AutoDict()  # current account valueinfos per account
@@ -1424,7 +1426,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         self.cancelQueue(q, True)
 
     @logibmsg
-    def reqRealTimeBars(self, contract, useRTH=False, duration=5, what = None):
+    def reqRealTimeBars(self, contract, useRTH=False, duration=5, what=None, tz=None):
         '''Creates a request for (5 seconds) Real Time Bars
 
         Params:
@@ -1449,6 +1451,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             bytes(what),
             useRTH,
             [])
+        self.realtz[tickerId] = tz
 
         return q
 
@@ -1632,7 +1635,10 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         Not valid for cash markets
         '''
         # Get a naive localtime object
-        msg.time = datetime.datetime.utcfromtimestamp(float(msg.time))
+        tz = self.realtz[msg.reqId]
+        local_time = datetime.datetime.fromtimestamp(float(msg.time))
+        local_time.replace(tzinfo=TZLocal)
+        msg.time = local_time.astimezone(tz)
         with self._lock_q:
             q = self.qs[msg.reqId]
         q.put(msg)
