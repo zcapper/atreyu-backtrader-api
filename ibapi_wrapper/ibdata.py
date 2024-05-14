@@ -657,25 +657,30 @@ class IBData(with_metaclass(MetaIBData, DataBase)):
             elif self._state == self._ST_HISTORBACK:
                 try:
                     if self._historical_ended:
-                        msg = self.qlive.get(timeout=self._qcheck)
+                        msg = self.qhist.get(timeout=self._qcheck)
                     else:
                         msg = self.qhist.get()
                 except queue.Empty:
-                    if True:
-                        if self.p.historical:  # only historical
-                            self.put_notification(self.DISCONNECTED)
-                            return False  # end of historical
+                    if self.p.historical:  # only historical
+                        self.put_notification(self.DISCONNECTED)
+                        return False  # end of historical
 
-                        # Live is also wished - go for it
-                        self._state = self._ST_LIVE
-                        continue
+                    # Live is also wished - go for it
+                    self._state = self._ST_LIVE
+                    continue
 
                 if msg is None:  # Conn broken during historical/backfilling
                     # Situation not managed. Simply bail out
                     self._subcription_valid = False
                     self._historical_ended = True
-                    self.put_notification(self.DISCONNECTED)
-                    return False  # error management cancelled the queue
+                    # check the live mode
+                    if self.p.historical:
+                        self.put_notification(self.DISCONNECTED)
+                        return False
+                    else:
+                        # return back to Live mode
+                        self._state = self._ST_LIVE
+                        continue
 
                 elif msg == -354:  # Data not subscribed
                     self._subcription_valid = False

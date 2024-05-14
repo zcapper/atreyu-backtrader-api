@@ -648,7 +648,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
     BrokerCls = None  # broker class will autoregister
     DataCls = None  # data class will auto register
 
-    BAR_SIZE = collections.OrderedDict({
+    BAR_SIZE = {
         '1 secs': {
             'max_duration': 1800,
             'max_duration_name': 'S',
@@ -734,10 +734,10 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             'max_duration_name': 'Y',
         },
         '1 year': {
-            'max_duration': 1,
+            'max_duration': 5,
             'max_duration_name': 'Y',
         },
-    })
+    }
 
     MAX_DURATION = {
         'S': 86400,
@@ -1291,9 +1291,6 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         if enddate is None:
             raise ValueError('enddate must be specified when request historical Data')
 
-        if begindate is None:
-            raise ValueError('begindate must be specified when request historical Data')
-
         # Check if the requested timeframe/compression is supported by IB
         data_compression, base_duration, barsize = self.get_barsize(timeframe, compression)
         if not data_compression:  # return a queue and put a None in it
@@ -1307,9 +1304,13 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             tickerId, q = self.reuseQueue(tickerId)  # reuse q for old tickerId
             logger.debug(f"Reuse tickerId: {tickerId} Q: {q}")
 
-        # Get the best possible duration to reduce number of requests
-        intdate, duration = self.dt_plus_duration(begindate, enddate, base_duration)
-        if intdate >= enddate:
+        if begindate is None:
+            duration = self.get_max_duration(barsize)
+            intdate = enddate
+        else:
+            # Get the best possible duration to reduce number of requests
+            intdate, duration = self.dt_plus_duration(begindate, enddate, base_duration)
+        if intdate > enddate:
             intdate = enddate
 
         if duration is None:  # no duration large enough to fit the request
@@ -1754,14 +1755,16 @@ class IBStore(with_metaclass(MetaSingleton, object)):
 
         return None, None, None
 
-    def getmaxduration(self, timeframe, compression):
-        key = (timeframe, compression)
-        try:
-            return self.revdur[key][-1]
-        except (KeyError, IndexError):
-            pass
-
-        return None
+    def get_max_duration(self, bar_size):
+        """
+        get the maximum duration for the bar_size
+        """
+        if bar_size not in IBStore.BAR_SIZE:
+            raise ValueError(f"Invalid bar size: {bar_size}")
+        bar_size_info = IBStore.BAR_SIZE[bar_size]
+        duration = bar_size_info["max_duration"]
+        duration_name = bar_size_info["max_duration_name"]
+        return f"{duration} {duration_name}"
 
     def dt_plus_duration(self, dtbegin, dtend, base_duration):
         size, dim = base_duration.split()
