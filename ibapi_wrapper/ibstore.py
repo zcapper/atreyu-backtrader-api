@@ -741,6 +741,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
 
     MAX_DURATION = {
         'S': 86400,
+        'D': 365,
     }
 
     TF2BARSIZE = collections.OrderedDict({
@@ -1308,12 +1309,9 @@ class IBStore(with_metaclass(MetaSingleton, object)):
 
         if begindate is None:
             duration = self.get_max_duration(barsize)
-            intdate = enddate
         else:
             # Get the best possible duration to reduce number of requests
-            intdate, duration = self.dt_plus_duration(begindate, enddate, base_duration)
-        if intdate > enddate:
-            intdate = enddate
+            begindate, duration = self.dt_plus_duration(begindate, enddate, base_duration)
 
         if duration is None:  # no duration large enough to fit the request
             raise RuntimeError(f"Cannot find historical duration for {begindate} to {enddate} on {base_duration}")
@@ -1336,12 +1334,12 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         what = what or 'TRADES'
 
         # print("Request Historical Data, parameters are:")
-        # print("tickerId: ", tickerId, "contract: ", contract, "enddate: ", intdate, "begindate: ", begindate, "duration: ",
+        # print("tickerId: ", tickerId, "contract: ", contract, "enddate: ", enddate, "begindate: ", begindate, "duration: ",
         #       duration, "barsize: ", barsize, "what: ", what, "useRTH: ", useRTH, "tz: ", tz)
         self.conn.reqHistoricalData(
             tickerId,
             contract,
-            bytes(intdate.strftime('%Y%m%d-%H:%M:%S')),
+            bytes(enddate.strftime('%Y%m%d-%H:%M:%S')),
             bytes(duration),
             bytes(barsize),
             bytes(what),
@@ -1786,21 +1784,24 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             # ib supports duration in 86400 seconds
             if value > IBStore.MAX_DURATION['S']:
                 value = math.ceil(value / IBStore.MAX_DURATION['S'])
-                return dtbegin + datetime.timedelta(days=value), f"{value} D"
+                return dtend - datetime.timedelta(days=value), f"{value} D"
             else:
-                return dtbegin + datetime.timedelta(seconds=value), f"{value} S"
+                return dtend - datetime.timedelta(seconds=value), f"{value} S"
         elif dim == 'D':
             value = math.ceil(seconds/ 86400 / base_size) * base_size
-            return dtbegin + datetime.timedelta(days=value), f"{value} D"
+            if value > IBStore.MAX_DURATION['D']:
+                return dtend - datetime.timedelta(days=IBStore.MAX_DURATION['D']), "1 Y"
+            else:
+                return dtend - datetime.timedelta(days=value), f"{value} D"
         elif dim == 'W':
             value = math.ceil(seconds / 604800 / base_size) * base_size
-            return dtbegin + datetime.timedelta(days=(value * 7)), f"{value} W"
+            return dtend - datetime.timedelta(days=(value * 7)), f"{value} W"
         elif dim == 'M':
             value = math.ceil(seconds / 2592000 / base_size) * base_size
-            return dtbegin + datetime.timedelta(days=(value * 30)), f"{value} M"
+            return dtend - datetime.timedelta(days=(value * 30)), f"{value} M"
         elif dim == 'Y':
             value = math.ceil(seconds / 31536000 / base_size) * base_size
-            return dtbegin + datetime.timedelta(days=(value * 365)), f"{value} Y"
+            return dtend - datetime.timedelta(days=(value * 365)), f"{value} Y"
         else:
             return None, None
 
