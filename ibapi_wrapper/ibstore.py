@@ -1313,6 +1313,8 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             # Get the best possible duration to reduce number of requests
             begindate, duration = self.dt_plus_duration(begindate, enddate, base_duration)
 
+        duration = self.check_max_duration(barsize, duration)
+
         if duration is None:  # no duration large enough to fit the request
             raise RuntimeError(f"Cannot find historical duration for {begindate} to {enddate} on {base_duration}")
 
@@ -1759,6 +1761,39 @@ class IBStore(with_metaclass(MetaSingleton, object)):
 
         return None, None, None
 
+    def check_max_duration(self, bar_size, duration):
+        """
+        get the maximum duration for the bar_size
+        """
+        def get_delta_time(duration):
+            duration_list = duration.split()
+            size = int(duration_list[0])
+            dim = duration_list[1]
+            if dim == "S":
+                delta = datetime.timedelta(seconds=size)
+            elif dim == "D":
+                delta = datetime.timedelta(days=size)
+            elif dim == "W":
+                delta = datetime.timedelta(weeks=size)
+            elif dim == "M":
+                delta = datetime.timedelta(months=size)
+            elif dim == "Y":
+                delta = datetime.timedelta(years=size)
+            return delta
+
+        if bar_size not in IBStore.BAR_SIZE:
+            raise ValueError(f"Invalid bar size: {bar_size}")
+        bar_size_info = IBStore.BAR_SIZE[bar_size]
+        delta = get_delta_time(duration)
+
+        max_duration = f"{bar_size_info['max_duration']} {bar_size_info['max_duration_name']}"
+        max_duration_delta = get_delta_time(max_duration)
+
+        if delta > max_duration_delta:
+            return max_duration
+        else:
+            return duration
+
     def get_max_duration(self, bar_size):
         """
         get the maximum duration for the bar_size
@@ -1774,7 +1809,6 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         size, dim = base_duration.split()
         base_size = int(size)
 
-        # TODO: max duration calculation
         delta_time = dtend - dtbegin
         # the minimum duration is 1 second
         seconds = int(delta_time.total_seconds())
