@@ -655,11 +655,10 @@ class IBData(with_metaclass(MetaIBData, DataBase)):
                 continue
 
             elif self._state == self._ST_HISTORBACK:
+                if self._historical_ended:
+                    return False
                 try:
-                    if self._historical_ended:
-                        msg = self.qhist.get(timeout=self._qcheck)
-                    else:
-                        msg = self.qhist.get()
+                    msg = self.qhist.get()
                 except queue.Empty:
                     if self.p.historical:  # only historical
                         self.put_notification(self.DISCONNECTED)
