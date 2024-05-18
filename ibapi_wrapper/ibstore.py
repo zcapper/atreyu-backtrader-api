@@ -1776,9 +1776,9 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             elif dim == "W":
                 delta = datetime.timedelta(weeks=size)
             elif dim == "M":
-                delta = datetime.timedelta(months=size)
+                delta = datetime.timedelta(days=size * 30)
             elif dim == "Y":
-                delta = datetime.timedelta(years=size)
+                delta = datetime.timedelta(days=size * 365)
             return delta
 
         if bar_size not in IBStore.BAR_SIZE:
