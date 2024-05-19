@@ -1867,9 +1867,9 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             contract.multiplier = bytes(mult)
         return contract
 
-    def cancelOrder(self, orderid):
+    def cancelOrder(self, orderid, manual_time=""):
         '''Proxy to cancelOrder'''
-        self.conn.cancelOrder(orderid)
+        self.conn.cancelOrder(orderid, manual_time)
     
     def placeOrder(self, orderid, contract, order):
         '''Proxy to placeOrder'''

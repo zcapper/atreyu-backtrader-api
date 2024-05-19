@@ -23,9 +23,10 @@ from __future__ import (absolute_import, division, print_function,
 
 import collections
 from copy import copy
-from datetime import date, datetime, timedelta
+import datetime
 import threading
 import uuid
+import pytz
 
 # import ib.ext.Order
 # import ib.opt as ibopt
@@ -40,7 +41,7 @@ from backtrader.metabase import MetaParams
 from backtrader.comminfo import CommInfoBase
 from backtrader.position import Position
 from ibapi_wrapper import ibstore
-from backtrader.utils import AutoDict, AutoOrderedDict
+from backtrader.utils import TZLocal
 from backtrader.comminfo import CommInfoBase
 
 bytes = bstr  # py2/3 need for ibpy
@@ -175,6 +176,7 @@ class IBOrder(OrderBase, ibapi.order.Order):
                 self.m_trailingPercent = self.trailpercent * 100.0
 
         self.totalQuantity = abs(self.size)  # ib takes only positives
+        tz = self.data._gettz()
 
         # self.m_transmit = self.transmit
         if self.parent is not None:
@@ -183,23 +185,17 @@ class IBOrder(OrderBase, ibapi.order.Order):
         # Time In Force: DAY, GTC, IOC, GTD
         if self.valid is None:
             tif = 'GTC'  # Good til cancelled
-        elif isinstance(self.valid, (datetime, date)):
-            tif = 'GTD'  # Good til date
-            self.goodTillDate = bytes(self.valid.strftime('%Y%m%d %H:%M:%S'))
-        elif isinstance(self.valid, (timedelta,)):
-            if self.valid == self.DAY:
-                tif = 'DAY'
-            else:
-                tif = 'GTD'  # Good til date
-                valid = datetime.now() + self.valid  # .now, using localtime
-                self.goodTillDate = bytes(valid.strftime('%Y%m%d %H:%M:%S'))
-
         elif self.valid == 0:
             tif = 'DAY'
+            valid = datetime.datetime.combine(
+                self.data.datetime.date(), datetime.time(23, 59, 59, 9999))
+            tz_dt = tz.localize(valid)
+            self.goodTillDate = bytes(tz_dt.strftime('%Y%m%d %H:%M:%S' + ' ' + tz.zone))
         else:
             tif = 'GTD'  # Good til date
             valid = num2date(self.valid)
-            self.goodTillDate = bytes(valid.strftime('%Y%m%d %H:%M:%S'))
+            tz_dt = pytz.utc.localize(valid).astimezone(tz)
+            self.goodTillDate = bytes(tz_dt.strftime('%Y%m%d %H:%M:%S' + ' ' + tz.zone))
 
         self.tif = bytes(tif)
 
@@ -280,6 +276,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         self.ordstatus = collections.defaultdict(dict)
         self.notifs = queue.Queue()  # holds orders which are notified
         self.tonotify = collections.deque()  # hold oids to be notified
+        self.opened_orders = queue.Queue()   # hold opened orders
 
     def start(self):
         super(IBBroker, self).start()
@@ -292,6 +289,8 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         else:
             self.startingcash = self.cash = 0.0
             self.startingvalue = self.value = 0.0
+        # Cancel all test orders temporarily
+        self.cancel_all_orders()
 
     def stop(self):
         super(IBBroker, self).stop()
@@ -524,9 +523,9 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
                 if dt_array and len(dt_array) > 1:
                   dt_array.pop()
                   ex_time = " ".join(dt_array)
-                  dt = date2num(datetime.strptime(ex_time, '%Y%m%d %H:%M:%S'))
+                  dt = date2num(datetime.datetime.strptime(ex_time, '%Y%m%d %H:%M:%S'))
                 else:
-                  dt = date2num(datetime.strptime(ex.time, '%Y%m%d %H:%M:%S %A'))
+                  dt = date2num(datetime.datetime.strptime(ex.time, '%Y%m%d %H:%M:%S %A'))
 
                 # Need to simulate a margin, but it plays no role, because it is
                 # controlled by a real broker. Let's set the price of the item
@@ -588,9 +587,30 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
             try:
                 order = self.orderbyid[msg.orderId]
             except (KeyError, AttributeError):
+                self.opened_orders.put(msg)
                 return  # no order or no id in error
 
             if msg.orderState.status in ['PendingCancel', 'Cancelled',
                                            'Canceled']:
                 # This is most likely due to an expiration]
                 order._willexpire = True
+
+    def cancel_all_orders(self):
+        '''
+        TODO: temporary cancel all orders
+        '''
+        try:
+            msg = self.opened_orders.get(timeout=0.1)
+        except queue.Empty:
+            return
+
+        status = msg.orderState.status
+        orderId = msg.orderId
+        print(".............................", status)
+        for x in dir(msg.order):
+            print(x, getattr(msg.order, x))
+        if status == Order.Cancelled:
+            print(f"{orderId} already cancelled.....................")
+            return
+        print("Start to cancel order.....................", orderId)
+        self.ib.cancelOrder(orderId)
