@@ -270,7 +270,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
     def __init__(self, **kwargs):
         super(IBBroker, self).__init__()
 
-        self.ib = ibstore.IBStore(**kwargs)
+        self.ib = None  # ibstore.IBStore(**kwargs)
         self.startingcash = self.cash = 0.0
         self.startingvalue = self.value = 0.0
 
@@ -283,6 +283,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
 
     def start(self):
         super(IBBroker, self).start()
+        self.ib = ibstore.IBStore()
         self.ib.start(broker=self)
         if self.ib.connected():
             self.ib.reqAccountUpdates()

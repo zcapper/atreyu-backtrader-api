@@ -792,6 +792,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         ('timeoffset', True),  # Use offset to server for timestamps if needed
         ('timerefresh', 60.0),  # How often to refresh the timeoffset
         ('indcash', True),  # Treat IND codes as CASH elements
+        ('broker', None),  # broker instance
     )
 
     @classmethod
@@ -820,7 +821,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         self.dontreconnect = False  # for non-recoverable connect errors
 
         self._env = None  # reference to cerebro for general notifications
-        self.broker = None  # broker instance
+        self.broker = None if not self.p.broker else self.p.broker # broker instance
         self.datas = list()  # datas that have registered over start
         self.ccount = 0  # requests to start (from cerebro or datas)
 
