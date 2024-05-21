@@ -627,8 +627,10 @@ class IBData(with_metaclass(MetaIBData, DataBase)):
                     # len == 1 ... forwarded for the 1st time
                     # get begin date in utc-like format like msg.datetime
                     dtbegin = num2date(self.datetime[-1])
+                    dtbegin = self._tz.localize(dtbegin)
                 elif self.fromdate > float('-inf'):
                     dtbegin = num2date(self.fromdate)
+                    dtbegin = self._tz.localize(dtbegin)
                 else:  # 1st bar and no begin set
                     # passing None to fetch max possible in 1 request
                     dtbegin = None
