@@ -610,36 +610,42 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
 
             self.notify(order)
 
-    def push_orderstate(self, msg):
+    def push_openorder(self, msg=None):
+        if msg == None:
+            # all open order push finished
+            self.opened_orders.put(None)
+            return
 
+        has_order = False
         with self._lock_orders:
-            try:
-                order = self.orderbyid[msg.orderId]
-            except (KeyError, AttributeError):
-                self.opened_orders.put(msg)
-                return  # no order or no id in error
+            started = self.started
+            if msg.orderId in self.orderbyid:
+                has_order = True
 
-            if msg.orderState.status in ['PendingCancel', 'Cancelled',
-                                           'Canceled']:
-                # This is most likely due to an expiration]
-                order._willexpire = True
+        if not started:
+            # TWS check the download open orders when connected
+            data = {"msg": msg, "event": "openOrder",}
+            self.opened_orders.put(data)
+        else:
+            # check the clientId, and rebuild the order
+            if msg.order.clientId != self.ib.clientId:
+                # It's the normal case when using reqAllOpenOrders
+                print("Receive other client's order", msg.order.clientId, self.ib.clientId)
+                return
 
-    def cancel_all_orders(self):
-        '''
-        TODO: temporary cancel all orders
-        '''
-        try:
-            msg = self.opened_orders.get(timeout=0.1)
-        except queue.Empty:
-            return
+            if has_order:
+                # When reconnect, maybe receive the openOrder, and we need to update the status
+                self._update_order_status(self, "openOrder", msg)
+            else:
+                data = {"msg": msg, "event": "openOrder",}
+                self.opened_orders.put(data)
 
-        status = msg.orderState.status
-        orderId = msg.orderId
-        print(".............................", status)
-        for x in dir(msg.order):
-            print(x, getattr(msg.order, x))
-        if status == Order.Cancelled:
-            print(f"{orderId} already cancelled.....................")
-            return
-        print("Start to cancel order.....................", orderId)
-        self.ib.cancelOrder(orderId)
+    def _update_order_status(self, event, msg):
+        # TODO: update the status
+        pass
+
+    def restore_iborder(self, owner, data,
+                        size, price=None, plimit=None,
+                        exectype=None, valid=None, tradeid=0,
+                        **kwargs):
+        pass
