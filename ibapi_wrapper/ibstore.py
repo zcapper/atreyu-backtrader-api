@@ -1877,11 +1877,11 @@ class IBStore(with_metaclass(MetaSingleton, object)):
     
     def openOrder(self, msg):
         '''Receive the event ``openOrder`` events'''
-        self.broker.push_orderstate(msg)
-    
+        self.broker.push_openorder(msg)
+
     def openOrderEnd(self):
-        # TODO: Add event to manage order requests 
-        logger.debug(f"openOrderEnd")
+        '''Receive the event ``openOrderEnd`` events'''
+        self.broker.push_openorder()
     
     def execDetails(self, reqId, contract, execution):
         '''Receive execDetails'''

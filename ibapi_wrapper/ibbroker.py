@@ -206,6 +206,32 @@ class IBOrder(OrderBase, ibapi.order.Order):
         for key, value in kwargs.items():
             setattr(self, key, value)
 
+        self.order_state = ibapi.order_state.OrderState()
+        self.contract = self.data.tradecontract
+
+    def get_contract(self):
+        return self.contract
+    
+    def get_order_state(self):
+        return self.order_state
+
+    def set_order_state(self, state):
+        '''
+        called after receiving an order state update
+        '''
+        self.order_state = state
+
+    def submit(self, *args, **kwargs):
+        self.order_state.status = 'Submitted'
+        return super().submit(*args, **kwargs)
+    
+    def save(self, path):
+        pass
+
+    def load(self, path):
+        pass
+
+
 class IBCommInfo(CommInfoBase):
     '''
     Commissions are calculated by ib, but the trades calculations in the
@@ -277,6 +303,8 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         self.notifs = queue.Queue()  # holds orders which are notified
         self.tonotify = collections.deque()  # hold oids to be notified
         self.opened_orders = queue.Queue()   # hold opened orders
+        self.started = False
+        self.save_path = kwargs.get("save_path", None)
 
     def start(self):
         super(IBBroker, self).start()
@@ -289,8 +317,8 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         else:
             self.startingcash = self.cash = 0.0
             self.startingvalue = self.value = 0.0
-        # Cancel all test orders temporarily
-        self.cancel_all_orders()
+
+        self.started = True
 
     def stop(self):
         super(IBBroker, self).stop()
