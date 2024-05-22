@@ -444,9 +444,9 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
 
     # Order statuses in msg
     (SUBMITTED, FILLED, CANCELLED, INACTIVE,
-     PENDINGSUBMIT, PENDINGCANCEL, PRESUBMITTED) = (
+     PENDINGSUBMIT, PENDINGCANCEL, PRESUBMITTED, APICANCELLED) = (
         'Submitted', 'Filled', 'Cancelled', 'Inactive',
-         'PendingSubmit', 'PendingCancel', 'PreSubmitted',)
+         'PendingSubmit', 'PendingCancel', 'PreSubmitted', "ApiCancelled")
 
     def push_orderstatus(self, msg):
         # Cancelled and Submitted with Filled = 0 can be pushed immediately
@@ -462,7 +462,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
             order.accept(self)
             self.notify(order)
 
-        elif msg.status == self.CANCELLED:
+        elif msg.status == self.CANCELLED or msg.status == self.APICANCELLED:
             # duplicate detection
             if order.status in [order.Cancelled, order.Expired]:
                 return
