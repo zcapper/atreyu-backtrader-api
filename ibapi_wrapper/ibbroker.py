@@ -635,7 +635,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
 
             if has_order:
                 # When reconnect, maybe receive the openOrder, and we need to update the status
-                self._update_order_status(self, "openOrder", msg)
+                self._update_order_status("openOrder", msg)
             else:
                 data = {"msg": msg, "event": "openOrder",}
                 self.opened_orders.put(data)
