@@ -27,6 +27,8 @@ import datetime
 import threading
 import uuid
 import pytz
+import os
+import json
 
 # import ib.ext.Order
 # import ib.opt as ibopt
@@ -225,12 +227,6 @@ class IBOrder(OrderBase, ibapi.order.Order):
     def submit(self, *args, **kwargs):
         self.order_state.status = 'Submitted'
         return super().submit(*args, **kwargs)
-    
-    def save(self, path):
-        pass
-
-    def load(self, path):
-        pass
 
 
 class IBCommInfo(CommInfoBase):
@@ -304,8 +300,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         self.notifs = queue.Queue()  # holds orders which are notified
         self.tonotify = collections.deque()  # hold oids to be notified
         self.opened_orders = queue.Queue()   # hold opened orders
-        self.started = False
-        self.save_path = kwargs.get("save_path", None)
+        self.save_path = kwargs.get("save_path", os.path.join(os.path.realpath(os.curdir), "TradeData"))
 
     def start(self):
         super(IBBroker, self).start()
@@ -318,8 +313,6 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         else:
             self.startingcash = self.cash = 0.0
             self.startingvalue = self.value = 0.0
-
-        self.started = True
 
     def stop(self):
         super(IBBroker, self).stop()
@@ -440,6 +433,13 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         return None
 
     def next(self):
+        if not self.opened_orders.empty():
+            while True:
+                msg = self.opened_orders.get()
+                if msg == None:
+                    break
+                self.rebuild_iborder_from_open_order(msg)
+
         self.notifs.put(None)  # mark notificatino boundary
 
     # Order statuses in msg
@@ -511,6 +511,46 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
                 self.ordstatus[msg.orderId][msg.filled] = msg
         else:  # Unknown status ...
             pass
+
+    def rebuild_iborder_from_open_order(self, msg):
+        order_id = msg.orderId
+        contract = msg.contract
+        order = msg.order
+        order_status = msg.orderState.status
+        client_id = msg.order.clientId
+        perm_id = msg.order.permId
+
+        # check the order data
+        if client_id != self.ib.clientId:
+            return
+
+        order_data = self._load_order(perm_id)
+        if order_data == None:
+            print(f"ERROR: Cannot load order data from file, {order_id} {contract.symbol} {order_status}")
+            return
+        if order_data["order_id"] != order_id:
+            print(f"ERROR: order data wrong, {order_data['order_id']} vs {order_id} {contract.symbol} {order_status}")
+            return
+
+        dataname = order_data["dataname"]
+        stratname = order_data["stratname"]
+        data = self.cerebro.getdatabyname(dataname)
+        owner = self.cerebro.getstratbyname(stratname)
+        size = order_data["size"]
+        price = order_data["price"]
+        pricelimit = order_data["pricelimit"]
+
+        ib_order = IBOrder(action=order.action, owner=owner, data=data, 
+                           size=size, price=price, pricelimit=pricelimit,
+                           exectype=order.orderType, valid=order.goodTillDate,
+                           tradeid=order.tradeid, 
+                           clientId=client_id, orderId=order_id)
+
+        # set status and notify the order
+        with self._lock_orders:
+            self.orderbyid[order_id] = ib_order
+
+        self.notify(ib_order)
 
     def push_execution(self, ex):
         self.executions[ex.execId] = ex
@@ -611,6 +651,11 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
             self.notify(order)
 
     def push_openorder(self, msg=None):
+        '''
+        In this callback, we only need to recreate the non-existent orders because the existing orders will have their status updated in other callbacks.
+        If this is the initial stage, this can be ignored for now, as IBAPI might have downloaded all open orders when connecting.
+        We will continue to request orders later. Since there is a lot of data not yet ready at the initial stage, we can ignore this stage for now.
+        '''
         if msg == None:
             # all open order push finished
             self.opened_orders.put(None)
@@ -618,34 +663,26 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
 
         has_order = False
         with self._lock_orders:
-            started = self.started
-            if msg.orderId in self.orderbyid:
-                has_order = True
+            has_order = True if msg.orderId in self.orderbyid else False
 
-        if not started:
-            # TWS check the download open orders when connected
-            data = {"msg": msg, "event": "openOrder",}
-            self.opened_orders.put(data)
+        if has_order:
+            # In this callback, we only need to recreate the non-existent orders
+            # because the existing orders will have their status updated in other callbacks.
+            # just return here
+            return
         else:
-            # check the clientId, and rebuild the order
-            if msg.order.clientId != self.ib.clientId:
-                # It's the normal case when using reqAllOpenOrders
-                print("Receive other client's order", msg.order.clientId, self.ib.clientId)
-                return
+            self.opened_orders.put(msg)
+            return
 
-            if has_order:
-                # When reconnect, maybe receive the openOrder, and we need to update the status
-                self._update_order_status("openOrder", msg)
-            else:
-                data = {"msg": msg, "event": "openOrder",}
-                self.opened_orders.put(data)
+    def _load_order(self, perm_id):
+        path = os.path.join(self.save_path, perm_id + ".json")
+        if not os.path.exists(path):
+            return None
+        return json.load(open(path, "r"))
 
-    def _update_order_status(self, event, msg):
-        # TODO: update the status
-        pass
-
-    def restore_iborder(self, owner, data,
-                        size, price=None, plimit=None,
-                        exectype=None, valid=None, tradeid=0,
-                        **kwargs):
-        pass
+    def _save_order(self, order_id):
+        order = self.orderbyid[order_id]
+        save_data = {}
+        perm_id = order.permId
+        save_path = os.path.join(self.save_path, perm_id + ".json")
+        json.dump(save_data, open(save_path, "w"))
