@@ -32,6 +32,7 @@ import pytz
 # import ib.opt as ibopt
 
 import ibapi.order
+import ibapi.order_state
 
 from backtrader.feed import DataBase
 from backtrader import (TimeFrame, num2date, date2num, BrokerBase,
