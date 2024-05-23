@@ -1769,6 +1769,8 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         def get_delta_time(duration):
             duration_list = duration.split()
             size = int(duration_list[0])
+            if size <= 0:
+                return None
             dim = duration_list[1]
             if dim == "S":
                 delta = datetime.timedelta(seconds=size)
@@ -1790,7 +1792,9 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         max_duration = f"{bar_size_info['max_duration']} {bar_size_info['max_duration_name']}"
         max_duration_delta = get_delta_time(max_duration)
 
-        if delta > max_duration_delta or delta < 0:
+        if max_duration_delta is None:
+            return max_duration
+        elif delta > max_duration_delta:
             return max_duration
         else:
             return duration
