@@ -1790,7 +1790,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         max_duration = f"{bar_size_info['max_duration']} {bar_size_info['max_duration_name']}"
         max_duration_delta = get_delta_time(max_duration)
 
-        if delta > max_duration_delta:
+        if delta > max_duration_delta or delta < 0:
             return max_duration
         else:
             return duration

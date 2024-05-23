@@ -21,9 +21,6 @@
 from __future__ import (absolute_import, division, print_function,
                         unicode_literals)
 
-import datetime
-import time
-
 import backtrader as bt
 from backtrader.feed import DataBase
 from backtrader import TimeFrame, date2num, num2date
@@ -31,6 +28,7 @@ from backtrader.utils.py3 import (integer_types, queue, string_types,
                                   with_metaclass)
 from backtrader.metabase import MetaParams
 from ibapi_wrapper import ibstore
+import pytz
 
 import logging
 logger = logging.getLogger(__name__)
@@ -627,10 +625,10 @@ class IBData(with_metaclass(MetaIBData, DataBase)):
                     # len == 1 ... forwarded for the 1st time
                     # get begin date in utc-like format like msg.datetime
                     dtbegin = num2date(self.datetime[-1])
-                    dtbegin = self._tz.localize(dtbegin)
+                    dtbegin = pytz.utc.localize(dtbegin)
                 elif self.fromdate > float('-inf'):
                     dtbegin = num2date(self.fromdate)
-                    dtbegin = self._tz.localize(dtbegin)
+                    dtbegin = pytz.utc.localize(dtbegin)
                 else:  # 1st bar and no begin set
                     # passing None to fetch max possible in 1 request
                     dtbegin = None
