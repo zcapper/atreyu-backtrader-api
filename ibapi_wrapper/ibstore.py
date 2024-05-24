@@ -870,18 +870,21 @@ class IBStore(with_metaclass(MetaSingleton, object)):
 
         self._debug = self.p._debug
         self._stop_flag = False
+
         # ibpy connection object
-        try:           
-            self.conn = IBApi(self, self._debug)
+        self.conn = IBApi(self, self._debug)
+        while not self.connected():
             self.conn.connect(self.p.host, self.p.port, self.clientId)
-            self.apiThread = threading.Thread(target=self.conn.run, daemon=True)
-            self.apiThread.start()
-        except Exception as e:
-            print(f"TWS Failed to connect: {e}")
+            print("Connect failed retrying after 5 seconds.....")
+            time.sleep(5)
+        self.apiThread = threading.Thread(target=self.conn.run, daemon=True)
+        self.apiThread.start()
 
     def start(self, data=None, broker=None):
         logger.info(f"IBStore start, data: {data} broker: {broker}")
-        self.reconnect(fromstart=True)  # reconnect should be an invariant
+        while not self.reconnect(fromstart=True):  # reconnect should be an invariant
+            print("Connect failed retrying after 5 seconds.....")
+            time.sleep(5)
 
         # Datas require some processing to kickstart data reception
         if data is None and broker is None:
@@ -903,6 +906,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
     
     def stop(self):
         self._stop_flag = True
+
         try:
             self.conn.disconnect()  # disconnect should be an invariant
         except AttributeError:
@@ -941,11 +945,11 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         #  - If achieved and fromstart is false, the datas will be
         #    re-kickstarted to recreate the subscription
         if self._stop_flag:
-            return
+            return False
 
         firstconnect = False
         try:
-            if self.conn.isConnected():
+            if self.connected():
                 if resub:
                     self.startdatas()
                 return True  # nothing to do
@@ -971,14 +975,12 @@ class IBStore(with_metaclass(MetaSingleton, object)):
 
             firstconnect = False
 
-            try:
-                logger.debug("Connect (host={self.p.host}, port={self.p.port}, clientId={self.clientId})")
-                if self.conn.connect(self.p.host, self.p.port, self.clientId):
-                    if not fromstart or resub:
-                        self.startdatas()
-                    return True  # connection successful
-            except Exception as e:
-                logger.exception(f"Failed to Connect {e}")
+            logger.debug("Connect (host={self.p.host}, port={self.p.port}, clientId={self.clientId})")
+            self.conn.connect(self.p.host, self.p.port, self.clientId)
+            if self.connected():
+                if not fromstart or resub:
+                    self.startdatas()
+                return True  # connection successful
 
             if retries > 0:
                 retries -= 1
@@ -999,6 +1001,11 @@ class IBStore(with_metaclass(MetaSingleton, object)):
 
     @logibmsg
     def stopdatas(self):
+        # if no stop flag, don't stop datas
+        # and wait for reconnecting
+        if not self._stop_flag:
+            return
+
         # stop subs and force datas out of the loop (in LIFO order)
         logger.debug(f"Stopping datas")
         ts = list()
@@ -1014,7 +1021,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             qs = list(self.qs.values())
         for q in reversed(qs):  # datamaster the last one to get a None
             q.put(None)
-    
+
     def get_notifications(self):
         '''Return the pending "store" notifications'''
         # The background thread could keep on adding notifications. The None
@@ -1096,13 +1103,11 @@ class IBStore(with_metaclass(MetaSingleton, object)):
 
         elif msg.errorCode == 326:  # not recoverable, clientId in use
             self.dontreconnect = True
-            self.conn.disconnect()
-            self.stopdatas()
+            self.close_connection()
 
         elif msg.errorCode == 502:
             # Cannot connect to TWS: port, config not open, tws off (504 then)
-            self.conn.disconnect()
-            self.stopdatas()
+            self.close_connection()
 
         elif msg.errorCode == 504:  # Not Connected for data op
             # Once for each data
@@ -1116,8 +1121,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         elif msg.errorCode == 1300:
             # TWS has been closed. The port for a new connection is there
             # newport = int(msg.errorMsg.split('-')[-1])  # bla bla bla -7496
-            self.conn.disconnect()
-            self.stopdatas()
+            self.close_connection()
 
         elif msg.errorCode == 1100:
             # Connection lost - Notify ... datas will wait on the queue
@@ -1151,6 +1155,12 @@ class IBStore(with_metaclass(MetaSingleton, object)):
     def connectionClosed(self):
         # Sometmes this comes without 1300/502 or any other and will not be
         # seen in error hence the need to manage the situation independently
+        self.close_connection()
+
+    def close_connection(self):
+        if not self._stop_flag:
+            return
+
         if self.connected():
             self.conn.disconnect()
             self.stopdatas()
