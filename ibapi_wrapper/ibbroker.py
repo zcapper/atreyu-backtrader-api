@@ -724,6 +724,8 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         self.push_openorder(msg)
 
     def _load_order(self, perm_id):
+        if not os.path.exists(self.save_path):
+            os.makedirs(self.save_path)
         path = os.path.join(self.save_path, perm_id + ".json")
         if not os.path.exists(path):
             return None
