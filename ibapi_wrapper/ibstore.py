@@ -1931,7 +1931,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
     
     def orderStatus(self, msg):
         '''Receive the event ``orderStatus``'''
-        print(f"Receive order status, msg.orderId: {msg.orderId}, msg.status: {msg.status}, symbol: {msg.contract.symbol}")
+        print(f"Receive order status, msg.orderId: {msg.orderId}, msg.status: {msg.status}")
         self.broker.push_orderstatus(msg)
     
     def commissionReport(self, commissionReport):

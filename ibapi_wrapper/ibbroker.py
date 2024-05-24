@@ -489,6 +489,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         except KeyError:
             return  # not found, it was not an order
 
+        order.order_state.status = msg.status
         if msg.status == self.SUBMITTED and msg.filled == 0:
             if order.status == order.Accepted:  # duplicate detection
                 return
@@ -547,26 +548,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
             print("Unknown status: %s" % (msg.orderId, msg.status))
             pass
 
-    def rebuild_iborder_from_open_order(self, msg):
-        order_id = msg.orderId
-        contract = msg.contract
-        order = msg.order
-        order_status = msg.orderState.status
-        client_id = msg.order.clientId
-        perm_id = msg.order.permId
-
-        # check the order data
-        if client_id != self.ib.clientId:
-            return
-
-        order_data = self._load_order(perm_id)
-        if order_data == None:
-            print(f"ERROR: Cannot load order data from file, {order_id} {contract.symbol} {order_status}")
-            return
-        if order_data["order_id"] != order_id:
-            print(f"ERROR: order data wrong, {order_data['order_id']} vs {order_id} {contract.symbol} {order_status}")
-            return
-
+    def rebuild_order(self, order_data):
         dataname = order_data["dataname"]
         stratname = order_data["stratname"]
         data = self.cerebro.getdatabyname(dataname)
@@ -574,12 +556,55 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         size = order_data["size"]
         price = order_data["price"]
         pricelimit = order_data["pricelimit"]
+        action = order_data["action"]
+        ibstatus = order_data["ibstatus"]
+        order_type = order_data["order_type"]
+        tradeid = order_data["tradeid"]
+        client_id = order_data["client_id"]
+        order_id = order_data["order_id"]
+        valid = order_data["valid"]
+        good_till_date = order_data["good_till_date"]
+        perm_id = order_data["perm_id"]
+        tif = order_data["tif"]
+        status = order_data["status"]
+        exec_type = order_data["exec_type"]
 
-        ib_order = IBOrder(action=order.action, owner=owner, data=data, 
+        ib_order = IBOrder(simulated=True, action=action, owner=owner, data=data, 
                            size=size, price=price, pricelimit=pricelimit,
-                           exectype=order.orderType, valid=order.goodTillDate,
-                           tradeid=order.tradeid, 
+                           exectype=exec_type, valid=None,
+                           tradeid=tradeid, 
                            clientId=client_id, orderId=order_id)
+
+        ib_order.order_state.status = ibstatus
+        ib_order.valid = valid
+        ib_order.goodTillDate = good_till_date
+        ib_order.permId = perm_id
+        ib_order.tif = bytes(tif)
+        ib_order.status = status
+        ib_order.orderType = order_type
+
+        return ib_order
+
+    def rebuild_iborder_from_open_order(self, msg):
+        order_id = msg.orderId
+        contract = msg.contract
+        order = msg.order
+        order_status = msg.orderState.status
+        client_id = order.clientId
+
+        # check the order data
+        if client_id != self.ib.clientId:
+            return
+
+        order_data = self._load_order(contract.symbol, client_id, order_id)
+        if order_data == None:
+            print(f"ERROR: Cannot load order data from file, {order_id} {contract.symbol} {order_status}")
+            return
+        if order_data["order_id"] != order_id:
+            print(f"ERROR: order data wrong, {order_data['order_id']} vs {order_id} {contract.symbol} {order_status}")
+            return
+
+        ib_order = self.rebuild_order(order_data)
 
         # set status and notify the order
         with self._lock_orders:
@@ -723,35 +748,53 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         # The same as the open order, we only need to recreate the non-existent orders
         self.push_openorder(msg)
 
-    def _load_order(self, perm_id):
+    def _load_order(self, symbol, client_id, order_id):
         if not os.path.exists(self.save_path):
             os.makedirs(self.save_path)
-        path = os.path.join(self.save_path, perm_id + ".json")
+        filename = f"{symbol}_{client_id}_{order_id}.json"
+        path = os.path.join(self.save_path, filename)
         if not os.path.exists(path):
             return None
         order_data = json.load(open(path, "r"))
-        if order_data["good_till_date"]:
-            order_data["good_till_date"] = datetime.datetime.strptime(order_data["good_till_date"], '%Y%m%d %H:%M:%S %Z%z')
+        if order_data["valid"] is None:
+            order_data["valid"] = None
+        else:
+            time_str = order_data["valid"]
+            datetime_part, timezone_part = time_str.rsplit(' ', 1)
+            naive_time = datetime.datetime.strptime(datetime_part, "%Y-%m-%d %H:%M:%S")
+            timezone = pytz.timezone(timezone_part)
+            order_data["valid"] = timezone.localize(naive_time)
+        order_data["symbol"] = symbol
         return order_data
 
     def _save_order(self, order):
-        perm_id = order.permId
+        order_id = order.orderId
         save_data = {
             "order_id": order.orderId,
+            "client_id": order.clientId,
             "dataname": order.data.getname(),
             "stratname": order.owner.getname(),
             "size": order.totalQuantity,
             "price": order.lmtPrice,
             "pricelimit": order.auxPrice,
-            "perm_id": perm_id,
+            "perm_id": order.permId,
             "action": order.action,
             "order_type": order.orderType,
+            "exec_type": order.exectype,
             "tif": order.tif,
-            "good_till_date": order.goodTillDate.strftime('%Y%m%d %H:%M:%S %Z%z') if order.goodTillDate else None,
+            "good_till_date": order.goodTillDate,
             "status": order.status,
-            "ibstatus": order.order_state.status
+            "ibstatus": order.order_state.status,
+            "valid": order.valid.strftime("%Y-%m-%d %H:%M:%S %Z%z") if order.valid else None,
+            "tradeid": order.tradeid,
+            "symbol": order.contract.symbol,
+            "con_id": order.contract.conId,
+            "sec_type": order.contract.secType,
+            "currency": order.contract.currency,
+            "exchange": order.contract.exchange,
         }
-        save_path = os.path.join(self.save_path, perm_id + ".json")
+        filename = f"{order.contract.symbol}_{order.clientId}_{order_id}.json"
+        save_path = os.path.join(self.save_path, filename)
         json.dump(save_data, open(save_path, "w"))
 
     def load_orders(self):
@@ -762,11 +805,27 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         orders_dir = os.path.realpath(self.save_path)
         for file in os.listdir(orders_dir):
             if file.endswith(".json"):
-                perm_id = file.split(".")[0]
-                order_data = self._load_order(perm_id)
-                self.loaded_orders[perm_id] = order_data
+                # filename is like: MSFT_1_1.json
+                name_list = file.split(".")[0].split("_")
+                symbol = name_list[0]
+                client_id = int(name_list[1])
+                order_id = name_list[2]
+                if client_id != self.ib.clientId:
+                    continue
+                order_data = self._load_order(symbol, client_id, order_id)
+                self.loaded_orders[order_id] = order_data
 
-        # request all opened orders
+        for order_data in self.loaded_orders.values():
+            if order_data["ibstatus"] in (self.FILLED, self.CANCELLED, self.INACTIVE, self.APICANCELLED):
+                # the order is already completed, no need to rebuild
+                print(f"Order({order_data['symbol']}_{order_data['client_id']}_{order_data['order_id']}) is already completed, no need to rebuild.")
+                continue
+            ib_order = self.rebuild_order(order_data)
+            if ib_order.orderId not in self.orderbyid:
+                self.orderbyid[ib_order.orderId] = ib_order
+                self.notify(ib_order)
+
+        # request all opened orders to update the order status
         self.request_broker_orders()
 
     def request_broker_orders(self):
