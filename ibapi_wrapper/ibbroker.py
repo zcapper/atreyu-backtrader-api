@@ -29,6 +29,7 @@ import uuid
 import pytz
 import os
 import json
+import time
 
 # import ib.ext.Order
 # import ib.opt as ibopt
@@ -295,12 +296,17 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
 
         self._lock_orders = threading.Lock()  # control access
         self.orderbyid = dict()  # orders by order id
+        self.loaded_orders = dict()  # orders loaded from file
         self.executions = dict()  # notified executions
         self.ordstatus = collections.defaultdict(dict)
         self.notifs = queue.Queue()  # holds orders which are notified
         self.tonotify = collections.deque()  # hold oids to be notified
-        self.opened_orders = queue.Queue()   # hold opened orders
+        self.broker_orders = queue.Queue()   # hold opened orders
         self.save_path = kwargs.get("save_path", os.path.join(os.path.realpath(os.curdir), "TradeData"))
+
+        self.is_requesting_open_orders = False
+        self.request_open_orders_count = 0
+        self.request_open_orders_time = 0
 
     def start(self):
         super(IBBroker, self).start()
@@ -433,12 +439,22 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         return None
 
     def next(self):
-        if not self.opened_orders.empty():
-            while True:
-                msg = self.opened_orders.get()
-                if msg == None:
-                    break
-                self.rebuild_iborder_from_open_order(msg)
+        orders_empty = self.broker_orders.empty()
+        while not self.broker_orders.empty():
+            msg = self.broker_orders.get()
+            self.rebuild_iborder_from_open_order(msg)
+        if not orders_empty:
+            # Because the orders is not empty, we cannot confirm that the order status is right
+            # because we discards the status updation when we cannot find the order in self.orderbyid
+            # so we need to request the orders again to get the status of each order because there is no way to get the status of each order in the open order callback
+            # the only way to get the status of each order is to request the orders from broker
+            # if the orders is empty, it means when we receive the order msg, the order id is in self.orderbyid or no other orders
+            self.request_broker_orders()
+        else:
+            # check the broker orders every 5 miniutes
+            now = time.time()
+            if self.request_open_orders_time != 0 and now - self.request_open_orders_time > 300:
+                self.request_broker_orders()
 
         self.notifs.put(None)  # mark notificatino boundary
 
@@ -451,7 +467,8 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
     def push_orderstatus(self, msg):
         # Cancelled and Submitted with Filled = 0 can be pushed immediately
         try:
-            order = self.orderbyid[msg.orderId]
+            with self._lock_orders:
+                order = self.orderbyid[msg.orderId]
         except KeyError:
             return  # not found, it was not an order
 
@@ -633,6 +650,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
             try:
                 order = self.orderbyid[msg.id]
             except (KeyError, AttributeError):
+                self.request_broker_orders()
                 return  # no order or no id in error
 
             if msg.errorCode == 202:
@@ -650,6 +668,8 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
 
             self.notify(order)
 
+        self.request_broker_orders()
+
     def push_openorder(self, msg=None):
         '''
         In this callback, we only need to recreate the non-existent orders because the existing orders will have their status updated in other callbacks.
@@ -658,7 +678,14 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         '''
         if msg == None:
             # all open order push finished
-            self.opened_orders.put(None)
+            # self.broker_orders.put(None)
+            need_request = False
+            with self._lock_orders:
+                self.is_requesting_open_orders = False
+                if self.request_open_orders_count > 0:
+                    need_request = True
+            if need_request:
+                self.request_broker_orders()
             return
 
         has_order = False
@@ -671,18 +698,69 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
             # just return here
             return
         else:
-            self.opened_orders.put(msg)
+            self.broker_orders.put(msg)
             return
+
+    def push_completedorder(self, msg):
+        # The same as the open order, we only need to recreate the non-existent orders
+        self.push_openorder(msg)
 
     def _load_order(self, perm_id):
         path = os.path.join(self.save_path, perm_id + ".json")
         if not os.path.exists(path):
             return None
-        return json.load(open(path, "r"))
+        order_data = json.load(open(path, "r"))
+        if order_data["good_till_date"]:
+            order_data["good_till_date"] = datetime.datetime.strptime(order_data["good_till_date"], '%Y%m%d %H:%M:%S %Z%z')
+        return order_data
 
-    def _save_order(self, order_id):
-        order = self.orderbyid[order_id]
-        save_data = {}
+    def _save_order(self, order):
         perm_id = order.permId
+        save_data = {
+            "order_id": order.orderId,
+            "dataname": order.data.getname(),
+            "stratname": order.owner.getname(),
+            "size": order.totalQuantity,
+            "price": order.lmtPrice,
+            "pricelimit": order.auxPrice,
+            "perm_id": perm_id,
+            "action": order.action,
+            "order_type": order.orderType,
+            "tif": order.tif,
+            "good_till_date": order.goodTillDate.strftime('%Y%m%d %H:%M:%S %Z%z') if order.goodTillDate else None,
+            "status": order.status,
+            "ibstatus": order.order_state.status
+        }
         save_path = os.path.join(self.save_path, perm_id + ".json")
         json.dump(save_data, open(save_path, "w"))
+
+    def load_orders(self):
+        '''
+        load all opened orders from file and insert into order list
+        and request the broker for all opened orders to determine the status of each order
+        '''
+        orders_dir = os.path.realpath(self.save_path)
+        for file in os.listdir(orders_dir):
+            if file.endswith(".json"):
+                perm_id = file.split(".")[0]
+                order_data = self._load_order(perm_id)
+                self.loaded_orders[perm_id] = order_data
+
+        # request all opened orders
+        self.request_broker_orders()
+
+    def request_broker_orders(self):
+        '''
+        request all opened orders from broker
+        '''
+        with self._lock_orders:
+            if self.is_requesting_open_orders:
+                self.request_open_orders_count = 1
+                return
+
+            self.is_requesting_open_orders = True
+        self.ib.reqCompletedOrders()
+        self.ib.reqOpenOrders()
+        self.request_open_orders_count = 0
+        self.request_open_orders_time = time.time()
+        print("Start request open orders and completed orders from broker")

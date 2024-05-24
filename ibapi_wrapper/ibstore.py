@@ -422,6 +422,10 @@ class IBApi(EWrapper, EClient):
         self.cb.openOrder(OpenOrderMsg(orderId, contract, order, orderState))
 
     @logibmsg
+    def completedOrders(self, contract, order, orderState):
+        self.cb.completedOrders(OpenOrderMsg(order.orderId, contract, order, orderState))
+
+    @logibmsg
     def openOrderEnd(self):
         """This is called at the end of a given request for open orders."""
         self.cb.openOrderEnd()
@@ -1138,7 +1142,6 @@ class IBStore(with_metaclass(MetaSingleton, object)):
                     q = self.qs[msg.reqId]
                 logger.warn(f"Cancel data queue for {msg.reqId}")
                 self.cancelQueue(q, True)
-
     
     def connectionClosed(self):
         # Sometmes this comes without 1300/502 or any other and will not be
@@ -1878,6 +1881,9 @@ class IBStore(with_metaclass(MetaSingleton, object)):
     def placeOrder(self, orderid, contract, order):
         '''Proxy to placeOrder'''
         self.conn.placeOrder(orderid, contract, order)
+
+    def reqOpenOrders(self):
+        self.conn.reqOpenOrders()
     
     def openOrder(self, msg):
         '''Receive the event ``openOrder`` events'''
@@ -1886,6 +1892,12 @@ class IBStore(with_metaclass(MetaSingleton, object)):
     def openOrderEnd(self):
         '''Receive the event ``openOrderEnd`` events'''
         self.broker.push_openorder()
+
+    def reqCompletedOrders(self):
+        self.conn.reqCompletedOrders(True)
+
+    def completedOrders(self, msg):
+        self.broker.push_completedorders(msg)
     
     def execDetails(self, reqId, contract, execution):
         '''Receive execDetails'''
