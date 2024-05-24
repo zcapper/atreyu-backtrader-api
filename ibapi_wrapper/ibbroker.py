@@ -468,7 +468,10 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
             if not self.ib.connected():
                 print("Try to reconnect to IB Gateway")
                 if self.ib.reconnect(fromstart=True):
-                    self.request_after_reconnect()
+                    # if reconnect success, we need to wait for a while to get the orders
+                    time.sleep(5)
+                    self.ib.rebuild_after_reconnect()
+                    self.rebuild_after_reconnect()
 
         self.notifs.put(None)  # mark notificatino boundary
 
@@ -780,7 +783,5 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         self.request_open_orders_time = time.time()
         print("Start request open orders and completed orders from broker")
 
-    def request_after_reconnect(self):
-        self.ib.reqAccountUpdates()
+    def rebuild_after_reconnect(self):
         self.request_broker_orders()
-        self.ib.reqPositions()

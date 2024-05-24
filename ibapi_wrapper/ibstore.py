@@ -877,7 +877,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             self.conn.connect(self.p.host, self.p.port, self.clientId)
             print("Connect failed retrying after 5 seconds.....")
             time.sleep(5)
-        self.apiThread = threading.Thread(target=self.conn.run, daemon=True)
+        self.apiThread = threading.Thread(target=self.conn.run, name="ibapi_run", daemon=True)
         self.apiThread.start()
 
     def start(self, data=None, broker=None):
@@ -991,10 +991,12 @@ class IBStore(with_metaclass(MetaSingleton, object)):
     def startdatas(self):
         # kickstrat datas, not returning until all of them have been done
         ts = list()
+        index = 0
         for data in self.datas:
-            t = threading.Thread(target=data.reqdata)
+            t = threading.Thread(target=data.reqdata, name="reqdata%d" % index)
             t.start()
             ts.append(t)
+            index += 1
 
         for t in ts:
             t.join()
@@ -1010,7 +1012,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         logger.debug(f"Stopping datas")
         ts = list()
         for data in self.datas:
-            t = threading.Thread(target=data.canceldata)
+            t = threading.Thread(target=data.canceldata, name="canceldata")
             t.start()
             ts.append(t)
 
@@ -1103,6 +1105,8 @@ class IBStore(with_metaclass(MetaSingleton, object)):
 
         elif msg.errorCode == 326:  # not recoverable, clientId in use
             self.dontreconnect = True
+            print("IBStore: clientId in use, cannot reconnect, eixt!!!!")
+            self.stop()
             self.close_connection()
 
         elif msg.errorCode == 502:
@@ -1115,8 +1119,9 @@ class IBStore(with_metaclass(MetaSingleton, object)):
 
             # Connection lost - Notify ... datas will wait on the queue
             # with no messages arriving
-            for q in self.ts:  # key: queue -> ticker
-                q.put(-msg.errorCode)
+            if self.close_connection():
+                for q in self.ts:  # key: queue -> ticker
+                    q.put(-msg.errorCode)
 
         elif msg.errorCode == 1300:
             # TWS has been closed. The port for a new connection is there
@@ -1126,18 +1131,21 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         elif msg.errorCode == 1100:
             # Connection lost - Notify ... datas will wait on the queue
             # with no messages arriving
-            for q in self.ts:  # key: queue -> ticker
-                q.put(-msg.errorCode)
+            if self.close_connection():
+                for q in self.ts:  # key: queue -> ticker
+                    q.put(-msg.errorCode)
 
         elif msg.errorCode == 1101:
             # Connection restored and tickerIds are gone
-            for q in self.ts:  # key: queue -> ticker
-                q.put(-msg.errorCode)
+            if self.close_connection():
+                for q in self.ts:  # key: queue -> ticker
+                    q.put(-msg.errorCode)
 
         elif msg.errorCode == 1102:
             # Connection restored and tickerIds maintained
-            for q in self.ts:  # key: queue -> ticker
-                q.put(-msg.errorCode)
+            if self.close_connection():
+                for q in self.ts:  # key: queue -> ticker
+                    q.put(-msg.errorCode)
 
         elif msg.errorCode < 500:
             # Given the myriad of errorCodes, start by assuming is an order
@@ -1159,11 +1167,12 @@ class IBStore(with_metaclass(MetaSingleton, object)):
 
     def close_connection(self):
         if not self._stop_flag:
-            return
+            return False
 
         if self.connected():
             self.conn.disconnect()
             self.stopdatas()
+        return True
     
     def updateAccountTime(self, timeStamp):
         logger.debug(f"timeStamp: {timeStamp}")
@@ -2166,3 +2175,32 @@ class IBStore(with_metaclass(MetaSingleton, object)):
                 return self.acc_cash[account]
         except KeyError:
             pass
+
+    def rebuild_after_reconnect(self):
+        if not self.connected():
+            return
+
+        print("Start rebuild the requests after reconnect....................")
+        # new run thread
+        self.apiThread = threading.Thread(target=self.conn.run, name="reconnect_ibapi_run", daemon=True)
+        self.apiThread.start()
+
+        # cancel all queue
+        for q in self.ts:  # key: queue -> ticker
+            q.put(None)
+
+        with self._lock_q:
+            self.qs = collections.OrderedDict()  # key: tickerId -> queues
+            self.ts = collections.OrderedDict()  # key: queue -> tickerId
+            self.iscash = dict()  # tickerIds from cash products (for ex: EUR.JPY)
+            self.histexreq = dict()  # holds segmented historical requests
+            self.histfmt = dict()  # holds datetimeformat for request
+            self.histsend = dict()  # holds sessionend (data time) for request
+            self.histtz = dict()  # holds sessionend (data time) for request
+
+        self.reqAccountUpdates()
+        self.reqPositions()
+
+        # start data request again
+        # the old threads will exit later
+        self.startdatas()
