@@ -427,8 +427,10 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
 
         return self.submit(order)
 
-    def notify(self, order):
+    def notify(self, order, save=True):
         self.notifs.put(order.clone())
+        if save:
+            self._save_order(order)
 
     def get_notification(self):
         try:
@@ -527,6 +529,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
             if msg.filled:
                 self.ordstatus[msg.orderId][msg.filled] = msg
         else:  # Unknown status ...
+            print("Unknown status: %s" % (msg.orderId, msg.status))
             pass
 
     def rebuild_iborder_from_open_order(self, msg):
@@ -567,7 +570,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         with self._lock_orders:
             self.orderbyid[order_id] = ib_order
 
-        self.notify(ib_order)
+        self.notify(ib_order, False)
 
     def push_execution(self, ex):
         self.executions[ex.execId] = ex
