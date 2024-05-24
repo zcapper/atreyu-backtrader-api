@@ -869,6 +869,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             self.clientId = self.p.clientId
 
         self._debug = self.p._debug
+        self._stop_flag = False
         # ibpy connection object
         try:           
             self.conn = IBApi(self, self._debug)
@@ -901,6 +902,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             self.broker = broker
     
     def stop(self):
+        self._stop_flag = True
         try:
             self.conn.disconnect()  # disconnect should be an invariant
         except AttributeError:
@@ -938,6 +940,9 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         #  - Try to connct
         #  - If achieved and fromstart is false, the datas will be
         #    re-kickstarted to recreate the subscription
+        if self._stop_flag:
+            return
+
         firstconnect = False
         try:
             if self.conn.isConnected():
@@ -978,7 +983,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             if retries > 0:
                 retries -= 1
 
-        self.dontreconnect = True
+        # self.dontreconnect = True
         return False  # connection/reconnection failed
 
     def startdatas(self):
@@ -1907,6 +1912,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
     
     def orderStatus(self, msg):
         '''Receive the event ``orderStatus``'''
+        print(f"Receive order status, msg.orderId: {msg.orderId}, msg.status: {msg.status}, symbol: {msg.contract.symbol}")
         self.broker.push_orderstatus(msg)
     
     def commissionReport(self, commissionReport):

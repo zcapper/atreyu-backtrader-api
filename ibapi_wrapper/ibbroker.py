@@ -307,6 +307,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         self.is_requesting_open_orders = False
         self.request_open_orders_count = 0
         self.request_open_orders_time = 0
+        self.check_connection_time = 0
 
     def start(self):
         super(IBBroker, self).start()
@@ -319,6 +320,9 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         else:
             self.startingcash = self.cash = 0.0
             self.startingvalue = self.value = 0.0
+        
+        # subscribe position updates
+        self.ib.reqPositions()
 
     def stop(self):
         super(IBBroker, self).stop()
@@ -442,6 +446,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
 
     def next(self):
         orders_empty = self.broker_orders.empty()
+        now = time.time()
         while not self.broker_orders.empty():
             msg = self.broker_orders.get()
             self.rebuild_iborder_from_open_order(msg)
@@ -454,9 +459,16 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
             self.request_broker_orders()
         else:
             # check the broker orders every 5 miniutes
-            now = time.time()
             if self.request_open_orders_time != 0 and now - self.request_open_orders_time > 300:
                 self.request_broker_orders()
+
+        if now - self.check_connection_time > 30:
+            # if the connection is lost, try to reconnect every 30 seconds
+            self.check_connection_time = now
+            if not self.ib.connected():
+                print("Try to reconnect to IB Gateway")
+                if self.ib.reconnect(fromstart=True):
+                    self.request_after_reconnect()
 
         self.notifs.put(None)  # mark notificatino boundary
 
@@ -767,3 +779,8 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         self.request_open_orders_count = 0
         self.request_open_orders_time = time.time()
         print("Start request open orders and completed orders from broker")
+
+    def request_after_reconnect(self):
+        self.ib.reqAccountUpdates()
+        self.request_broker_orders()
+        self.ib.reqPositions()
