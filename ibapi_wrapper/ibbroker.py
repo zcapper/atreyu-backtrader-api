@@ -582,6 +582,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         ib_order.tif = bytes(tif)
         ib_order.status = status
         ib_order.orderType = order_type
+        ib_order.p.simulated = False
 
         return ib_order
 
