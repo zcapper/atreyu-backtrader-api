@@ -213,6 +213,9 @@ class IBOrder(OrderBase, ibapi.order.Order):
         self.order_state = ibapi.order_state.OrderState()
         self.contract = self.data.tradecontract
 
+        self.create_time = time.time()
+        self.update_time = time.time()
+
     def get_contract(self):
         return self.contract
     
@@ -433,6 +436,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
 
     def notify(self, order, save=True):
         self.notifs.put(order.clone())
+        order.update_time = time.time()
         if save:
             self._save_order(order)
 
@@ -568,6 +572,8 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         tif = order_data["tif"]
         status = order_data["status"]
         exec_type = order_data["exec_type"]
+        create_time = order_data["create_time"]
+        update_time = order_data["update_time"]
 
         ib_order = IBOrder(simulated=True, action=action, owner=owner, data=data, 
                            size=size, price=price, pricelimit=pricelimit,
@@ -583,6 +589,8 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         ib_order.status = status
         ib_order.orderType = order_type
         ib_order.p.simulated = False
+        ib_order.create_time = create_time
+        ib_order.update_time = update_time
 
         return ib_order
 
@@ -793,6 +801,8 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
             "sec_type": order.contract.secType,
             "currency": order.contract.currency,
             "exchange": order.contract.exchange,
+            "create_time": order.create_time,
+            "update_time": order.update_time,
         }
         filename = f"{order.contract.symbol}_{order.clientId}_{order_id}.json"
         save_path = os.path.join(self.save_path, filename)
