@@ -311,6 +311,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         self.tonotify = collections.deque()  # hold oids to be notified
         self.broker_orders = queue.Queue()   # hold opened orders
         self.save_path = kwargs.get("save_path", os.path.join(os.path.realpath(os.curdir), "TradeData"))
+        self.save_completed_path = os.path.abspath(os.path.join(self.save_path, "Completed"))
 
         self.is_requesting_open_orders = False
         self.request_open_orders_count = 0
@@ -765,6 +766,8 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
     def _load_order(self, symbol, client_id, order_id):
         if not os.path.exists(self.save_path):
             os.makedirs(self.save_path)
+        if not os.path.exists(self.save_completed_path):
+            os.makedirs(self.save_save_completed_path)
         filename = f"{symbol}_{client_id}_{order_id}.json"
         path = os.path.join(self.save_path, filename)
         if not os.path.exists(path):
@@ -779,9 +782,14 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
             timezone = pytz.timezone(timezone_part)
             order_data["valid"] = timezone.localize(naive_time)
         order_data["symbol"] = symbol
+        order_data["filename"] = filename
         return order_data
 
     def _save_order(self, order):
+        if not os.path.exists(self.save_path):
+            os.makedirs(self.save_path)
+        if not os.path.exists(self.save_completed_path):
+            os.makedirs(self.save_save_completed_path)
         order_id = order.orderId
         save_data = {
             "order_id": order.orderId,
@@ -813,6 +821,26 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         save_path = os.path.join(self.save_path, filename)
         json.dump(save_data, open(save_path, "w"))
 
+        self.check_completed_orders(save_data)
+
+    def check_completed_orders(self, order_data):
+        if order_data["ibstatus"] not in (self.FILLED, self.CANCELLED, self.INACTIVE, self.APICANCELLED):
+            return
+
+        # TODO: find the unique id from ibapi for the order file
+        src_filename = f"{order_data['symbol']}_{order_data['client_id']}_{order_data['order_id']}.json"
+        index = 1
+        while True:
+            filename = f"{order_data['symbol']}_{order_data['client_id']}_{order_data['order_id']}_{index}.json"
+            if not os.path.exists(os.path.join(self.save_completed_path, filename)):
+                break
+            else:
+                index += 1
+        dest_path = os.path.abspath(os.path.join(self.save_completed_path, filename))
+        # move
+        os.rename(os.path.join(self.save_path, src_filename), dest_path)
+        logger.info(f"Order({order_data['symbol']}_{order_data['client_id']}_{order_data['order_id']}) move to Completed directory.")
+
     def load_orders(self):
         '''
         load all opened orders from file and insert into order list
@@ -835,6 +863,8 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
             if order_data["ibstatus"] in (self.FILLED, self.CANCELLED, self.INACTIVE, self.APICANCELLED):
                 # the order is already completed, no need to rebuild
                 print(f"Order({order_data['symbol']}_{order_data['client_id']}_{order_data['order_id']}) is already completed, no need to rebuild.")
+                # move the file to another directory
+                self.check_completed_orders(order_data)
                 continue
             ib_order = self.rebuild_order(order_data)
             if ib_order.orderId not in self.orderbyid:
