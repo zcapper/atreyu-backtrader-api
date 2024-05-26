@@ -1068,8 +1068,11 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         else:
             logger.debug(f"{msg}")
 
-        if msg.reqId == -1 and msg.errorCode == 502:
-            print(msg.errorString)
+        if msg.reqId == -1:
+            if msg.errorCode == 502:
+                print(msg.errorString)
+            elif msg.errorCode in [2104, 2107, 2106, 2158]:
+                logger.info(f"{msg.errorString}")
 
         if not self.p.notifyall:
             self.notifs.put((msg, tuple(vars(msg).values()), dict(vars(msg).items())))
