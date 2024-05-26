@@ -45,6 +45,10 @@ import pytz
 
 bytes = bstr  # py2/3 need for ibpy
 logger = logging.getLogger(__name__)
+stream_handler = logging.StreamHandler()
+stream_handler.setLevel(logging.INFO)
+logger.addHandler(stream_handler)
+logger.setLevel(logging.INFO)
 
 
 class ErrorMsg(object):
@@ -317,12 +321,10 @@ class MetaSingleton(MetaParams):
 def logibmsg(fn):
     def logmsg_decorator(self, *args, **kwargs):
         try:
-            if self._debug:
-                args_repr = [repr(a) for a in args]
-                kwargs_repr = [f"{k}={v!r}" for k, v in kwargs.items()]
-                signature = ", ".join(args_repr + kwargs_repr)
-                logger.debug(f"Calling {fn.__name__}({signature})")
-                print(f"Calling {fn.__name__}({signature})")
+            args_repr = [repr(a) for a in args]
+            kwargs_repr = [f"{k}={v!r}" for k, v in kwargs.items()]
+            signature = ", ".join(args_repr + kwargs_repr)
+            logger.debug(f"Calling {fn.__name__}({signature})")
             return fn(self, *args, **kwargs)
         except Exception as e:
             logger.exception(f"Exception raised in {fn.__name__}. exception: {str(e)}")
@@ -505,7 +507,6 @@ class IBApi(EWrapper, EClient):
     def realtimeBar(self, reqId, time, open_, high, low, close, volume, wap, count):
         self.cb.realtimeBar(RTBar(reqId, time, open_, high, low, close, float(volume), wap, count))
 
-    @logibmsg
     def historicalData(self, reqId, bar):
         self.cb.historicalData(HistBar(reqId, bar))
 
@@ -519,7 +520,6 @@ class IBApi(EWrapper, EClient):
         '''Not implemented'''
         pass
 
-    @logibmsg
     def historicalDataEnd(self, reqId, start, end):
         """ Marks the ending of the historical bars reception. """
         self.cb.historicalDataEnd(reqId, start, end)
@@ -871,14 +871,25 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         self._debug = self.p._debug
         self._stop_flag = False
 
+        self.set_logger_level()
+
         # ibpy connection object
         self.conn = IBApi(self, self._debug)
         while not self.connected():
             self.conn.connect(self.p.host, self.p.port, self.clientId)
-            print("Connect failed retrying after 5 seconds.....")
+            logger.info("Connect failed retrying after 5 seconds.....")
             time.sleep(5)
         self.apiThread = threading.Thread(target=self.conn.run, name="ibapi_run", daemon=True)
         self.apiThread.start()
+
+    def set_logger_level(self):
+        handler = logger.handlers[0]
+        if self._debug:
+            handler.setLevel(logging.DEBUG)
+            logger.setLevel(logging.DEBUG)
+        else:
+            handler.setLevel(logging.INFO)
+            logger.setLevel(logging.INFO)
 
     def start(self, data=None, broker=None):
         logger.info(f"IBStore start, data: {data} broker: {broker}")
@@ -1054,7 +1065,6 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         # actually be of interest to the user
         if msg.reqId > 0:
             logger.error(f"{msg}")
-            print(f"Error: {msg}")
         else:
             logger.debug(f"{msg}")
 
@@ -1335,6 +1345,8 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             tickerId, q = self.reuseQueue(tickerId)  # reuse q for old tickerId
             logger.debug(f"Reuse tickerId: {tickerId} Q: {q}")
 
+        logger.debug(f"Request duration: {base_duration} barsize: {barsize} timeframe: {timeframe} compression: {compression}")
+        logger.debug(f"Date: {enddate} begindate: {begindate} what: {what} useRTH: {useRTH} tz: {tz} sessionend: {sessionend}")
         if begindate is None:
             duration = self.get_max_duration(barsize)
         else:
@@ -1363,9 +1375,8 @@ class IBStore(with_metaclass(MetaSingleton, object)):
 
         what = what or 'TRADES'
 
-        # print("Request Historical Data, parameters are:")
-        # print("tickerId: ", tickerId, "contract: ", contract, "enddate: ", enddate, "begindate: ", begindate, "duration: ",
-        #       duration, "barsize: ", barsize, "what: ", what, "useRTH: ", useRTH, "tz: ", tz)
+        logger.debug(f"Request Historical Data, parameters are:")
+        logger.debug(f"tickerId: {tickerId} contract: {contract} enddate: {enddate} begindate: {begindate} duration: {duration} barsize: {barsize} what: {what}, useRTH: {useRTH} tz: {tz}")
         self.conn.reqHistoricalData(
             tickerId,
             contract,
