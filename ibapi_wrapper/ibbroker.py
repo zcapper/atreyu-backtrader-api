@@ -349,7 +349,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
 
     def getposition(self, data, clone=True):
         position = self.ib.getposition(data.tradecontract, clone=clone)
-        logger.info(f"getposition: {position}")
+        logger.debug(f"getposition: {position}")
         return position
 
     def cancel(self, order):
