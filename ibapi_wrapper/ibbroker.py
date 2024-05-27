@@ -767,7 +767,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         if not os.path.exists(self.save_path):
             os.makedirs(self.save_path)
         if not os.path.exists(self.save_completed_path):
-            os.makedirs(self.save_save_completed_path)
+            os.makedirs(self.save_completed_path)
         filename = f"{symbol}_{client_id}_{order_id}.json"
         path = os.path.join(self.save_path, filename)
         if not os.path.exists(path):
@@ -789,7 +789,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         if not os.path.exists(self.save_path):
             os.makedirs(self.save_path)
         if not os.path.exists(self.save_completed_path):
-            os.makedirs(self.save_save_completed_path)
+            os.makedirs(self.save_completed_path)
         order_id = order.orderId
         save_data = {
             "order_id": order.orderId,
