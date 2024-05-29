@@ -28,6 +28,7 @@ from backtrader.utils.py3 import (integer_types, queue, string_types,
                                   with_metaclass)
 from backtrader.metabase import MetaParams
 from ibapi_wrapper import ibstore
+import datetime
 import pytz
 
 import logging
@@ -422,6 +423,8 @@ class IBData(with_metaclass(MetaIBData, DataBase)):
             self._state = self._ST_START  # initial state for _load
         self._statelivereconn = False  # if reconnecting in live state
         self._subcription_valid = False  # subscription state
+        self._historical_get_data = False # historical data started status
+        self._historical_get_date_time = None
         self._historical_ended = False  # historical data ended status
         self._storedmsg = dict()  # keep pending live message (under None)
 
@@ -506,8 +509,7 @@ class IBData(with_metaclass(MetaIBData, DataBase)):
                     msg = (self._storedmsg.pop(None, None) or
                            self.qlive.get(timeout=self._qcheck))
                 except queue.Empty:
-                    if True:
-                        return None
+                    return None
 
                 # Code invalidated until further checking is done
                     # if not self._statelivereconn:
@@ -637,6 +639,7 @@ class IBData(with_metaclass(MetaIBData, DataBase)):
 
                 if self._timeframe != bt.TimeFrame.Ticks:
                     self._historical_ended = False
+                    self._historical_get_data = False
                     self.qhist = self.ib.reqHistoricalDataEx(
                         contract=self.contract, enddate=dtend, begindate=dtbegin,
                         timeframe=self._timeframe, compression=self._compression,
@@ -645,6 +648,7 @@ class IBData(with_metaclass(MetaIBData, DataBase)):
                 else:
                     # dtend = num2date(dtend)
                     self._historical_ended = False
+                    self._historical_get_data = False
                     self.qhist = self.ib.reqHistoricalTicksEx(
                         contract=self.contract, enddate=dtend,
                         what=self.p.what, useRTH=self.p.useRTH, tz=self._tz,
@@ -657,16 +661,31 @@ class IBData(with_metaclass(MetaIBData, DataBase)):
             elif self._state == self._ST_HISTORBACK:
                 if self._historical_ended:
                     return False
+
                 try:
-                    msg = self.qhist.get()
+                    # There is no historical data sometimes, especially when start the data during the closed market
+                    if not self._historical_get_data:
+                        msg = self.qhist.get(timeout=self._qcheck)
+                    else:
+                        msg = self.qhist.get()
                 except queue.Empty:
                     if self.p.historical:  # only historical
-                        self.put_notification(self.DISCONNECTED)
-                        return False  # end of historical
+                        if self._historical_get_date_time is None:
+                            logger.warning("We didn't get historical data, consider to set the self.p.qcheck to 0.0 to accelerate the process.")
+                            self._historical_get_date_time = datetime.datetime.now()
+
+                        if datetime.datetime.now() - self._historical_get_date_time > datetime.timedelta(seconds=60):
+                            logger.warning("We didn't get historical data for 60 seconds, consider to set the self.p.qcheck to 0.0 to accelerate the process.")
+                            self._historical_get_date_time = datetime.datetime.now()
+                        # self.put_notification(self.DISCONNECTED)
+                        return None  # end of historical
 
                     # Live is also wished - go for it
                     self._state = self._ST_LIVE
                     continue
+
+                self._historical_get_data = True
+                self._historical_get_date_time = datetime.datetime.now()
 
                 if msg is None:  # Conn broken during historical/backfilling
                     # Situation not managed. Simply bail out
@@ -749,11 +768,13 @@ class IBData(with_metaclass(MetaIBData, DataBase)):
 
             if self._timeframe == bt.TimeFrame.Ticks:
                 self._historical_ended = False
+                self._historical_get_data = False
                 self.qhist = self.ib.reqHistoricalTicksEx(
                     contract=self.contract, enddate=dtend, begindate=dtbegin,
                     what=self.p.what, useRTH=self.p.useRTH, tz=self._tz)
             else:
                 self._historical_ended = False
+                self._historical_get_data = False
                 self.qhist = self.ib.reqHistoricalDataEx(
                     contract=self.contract, enddate=dtend, begindate=dtbegin,
                     timeframe=self._timeframe, compression=self._compression,

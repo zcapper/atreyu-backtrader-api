@@ -1073,6 +1073,11 @@ class IBStore(with_metaclass(MetaSingleton, object)):
                 print(msg.errorString)
             elif msg.errorCode in [2104, 2107, 2106, 2158]:
                 logger.info(f"{msg.errorString}")
+            elif msg.errorCode == 2105:
+                logger.critical(f"{msg.errorString}")
+                # raise RuntimeError("We cannot get the historical data from interactive brokers, please restart the ibgate or tws!")
+            else:
+                logger.info(f"error: {msg.errorCode} {msg.errorString}")
 
         if not self.p.notifyall:
             self.notifs.put((msg, tuple(vars(msg).values()), dict(vars(msg).items())))
