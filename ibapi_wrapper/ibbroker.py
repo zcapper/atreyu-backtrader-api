@@ -580,6 +580,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         exec_type = order_data["exec_type"]
         create_time = order_data["create_time"]
         update_time = order_data["update_time"]
+        uuid = order_data["uuid"]
 
         ib_order = IBOrder(simulated=True, action=action, owner=owner, data=data, 
                            size=size, price=price, pricelimit=pricelimit,
@@ -597,6 +598,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         ib_order.p.simulated = False
         ib_order.create_time = create_time
         ib_order.update_time = update_time
+        ib_order.uuid = uuid
 
         return ib_order
 
@@ -816,6 +818,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
             "exchange": order.contract.exchange,
             "create_time": order.create_time,
             "update_time": order.update_time,
+            "uuid": order.uuid,
         }
         filename = f"{order.contract.symbol}_{order.clientId}_{order_id}.json"
         save_path = os.path.join(self.save_path, filename)
