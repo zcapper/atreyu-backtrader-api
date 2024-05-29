@@ -33,6 +33,10 @@ import pytz
 
 import logging
 logger = logging.getLogger(__name__)
+stream_handler = logging.StreamHandler()
+stream_handler.setLevel(logging.INFO)
+logger.addHandler(stream_handler)
+logger.setLevel(logging.INFO)
 
 class MetaIBData(DataBase.__class__):
     def __init__(cls, name, bases, dct):
