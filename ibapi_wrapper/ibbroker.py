@@ -460,6 +460,23 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
 
         return None
 
+    def _check_connection(self):
+        reason = ""
+        if self.ib.connected():
+            if not self.ib.data_is_lost():
+                return
+            else:
+                reason = "data lost"
+        else:
+            reason = "connection lost"
+
+        self.logger.info(f"Try to reconnect to IB Gateway, reason: {reason}")
+        if self.ib.reconnect(fromstart=True):
+            # if reconnect success, we need to wait for a while to get the orders
+            time.sleep(5)
+            self.ib.rebuild_after_reconnect()
+            self.rebuild_after_reconnect()
+
     def next(self):
         orders_empty = self.broker_orders.empty()
         now = time.time()
@@ -481,13 +498,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         if now - self.check_connection_time > 30:
             # if the connection is lost, try to reconnect every 30 seconds
             self.check_connection_time = now
-            if not self.ib.connected():
-                self.logger.info("Try to reconnect to IB Gateway")
-                if self.ib.reconnect(fromstart=True):
-                    # if reconnect success, we need to wait for a while to get the orders
-                    time.sleep(5)
-                    self.ib.rebuild_after_reconnect()
-                    self.rebuild_after_reconnect()
+            self._check_connection()
 
         self.notifs.put(None)  # mark notificatino boundary
 

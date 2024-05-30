@@ -821,6 +821,10 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         self._lock_pos = threading.Lock()  # sync position updates
         self._lock_notif = threading.Lock()  # sync access to notif queue
         self._lock_managed_acc = threading.Lock()  # sync managed accounts
+        self._lock_lose_data = threading.Lock()
+
+        self._lose_data = False
+        self._need_reconnect = False
 
         # Account list received
         self._event_managed_accounts = threading.Event()
@@ -930,6 +934,23 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         # Unblock any calls set on these events
         self._event_managed_accounts.set()
         self._event_accdownload.set()
+
+    def data_is_lost(self):
+        result = False
+        with self._lock_lose_data:
+            result = self._lose_data
+        return result
+
+    def set_losing_data(self, value):
+        with self._lock_lose_data:
+            self._lose_data = value
+
+        if value:
+            # when set the data is lost, wait for the reconnect signal
+            self._need_reconnect = False
+
+    def need_reconnect(self):
+        return self._need_reconnect
     
     # @logibmsg
     def connected(self):
@@ -1024,7 +1045,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             return
 
         # stop subs and force datas out of the loop (in LIFO order)
-        store_logger.debug(f"Stopping datas")
+        store_logger.info(f"Stopping datas")
         ts = list()
         for data in self.datas:
             t = threading.Thread(target=data.canceldata, name="canceldata")
@@ -1069,8 +1090,8 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         # actually be of interest to the user
         if msg.reqId > 0:
             store_logger.error(f"{msg}")
-        else:
-            store_logger.debug(f"{msg}")
+        elif msg.reqId != -1:
+            store_logger.info(f"{msg}")
 
         if msg.reqId == -1:
             if msg.errorCode == 502:
@@ -1090,6 +1111,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         if msg.errorCode is None:
             # Usually received as an error in connection of just before disconn
             pass
+
         elif msg.errorCode in [200, 203, 162, 320, 321, 322]:
             # cdetails 200 security not found, notify over right queue
             # cdetails 203 security not allowed for acct
@@ -1115,59 +1137,40 @@ class IBStore(with_metaclass(MetaSingleton, object)):
                 store_logger.warn(f"Cancel data queue for {msg.reqId}")
                 self.cancelQueue(q)
 
-        elif msg.errorCode == 10225:
-            # 10225-Bust event occurred, current subscription is deactivated.
-            # Please resubscribe real-time bars immediately.
-            try:
-                q = self.qs[msg.reqId]
-            except KeyError:
-                pass  # should not happend but it can
-            else:
-                q.put(-msg.errorCode)
-
         elif msg.errorCode == 326:  # not recoverable, clientId in use
             self.dontreconnect = True
-            print("IBStore: clientId in use, cannot reconnect, eixt!!!!")
+            store_logger.error("IBStore: clientId in use, cannot reconnect, eixt!!!!")
             self.stop()
             self.close_connection()
 
-        elif msg.errorCode == 502:
+        elif msg.errorCode == [502, 504, 10225, 1100]:
             # Cannot connect to TWS: port, config not open, tws off (504 then)
-            self.close_connection()
-
-        elif msg.errorCode == 504:  # Not Connected for data op
-            # Once for each data
-            # pass  # don't need to manage it
-
-            # Connection lost - Notify ... datas will wait on the queue
-            # with no messages arriving
-            if self.close_connection():
-                for q in self.ts:  # key: queue -> ticker
-                    q.put(-msg.errorCode)
+            for data in self.datas:
+                if data is not None:
+                    data.push_error(msg)
+            self.set_losing_data(True)
 
         elif msg.errorCode == 1300:
             # TWS has been closed. The port for a new connection is there
             # newport = int(msg.errorMsg.split('-')[-1])  # bla bla bla -7496
+            self.dontreconnect = True
+            store_logger.error("IBStore: TWS has been closed, cannot reconnect, exit!!!!, receive 1300")
+            self.stop()
             self.close_connection()
-
-        elif msg.errorCode == 1100:
-            # Connection lost - Notify ... datas will wait on the queue
-            # with no messages arriving
-            if self.close_connection():
-                for q in self.ts:  # key: queue -> ticker
-                    q.put(-msg.errorCode)
 
         elif msg.errorCode == 1101:
             # Connection restored and tickerIds are gone
-            if self.close_connection():
-                for q in self.ts:  # key: queue -> ticker
-                    q.put(-msg.errorCode)
+            for data in self.datas:
+                if data is not None:
+                    data.push_error(msg)
+            self._need_reconnect = True
 
         elif msg.errorCode == 1102:
             # Connection restored and tickerIds maintained
-            if self.close_connection():
-                for q in self.ts:  # key: queue -> ticker
-                    q.put(-msg.errorCode)
+            for data in self.datas:
+                if data is not None:
+                    data.push_error(msg)
+            self._need_reconnect = True
 
         elif msg.errorCode < 500:
             # Given the myriad of errorCodes, start by assuming is an order
@@ -2204,6 +2207,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             return
 
         print("Start rebuild the requests after reconnect....................")
+        self._need_reconnect = False
         # new run thread
         self.apiThread = threading.Thread(target=self.conn.run, name="reconnect_ibapi_run", daemon=True)
         self.apiThread.start()
