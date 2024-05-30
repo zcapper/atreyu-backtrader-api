@@ -582,6 +582,10 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         update_time = order_data["update_time"]
         uuid = order_data["uuid"]
 
+        if data is None:
+            logger.warning(f"We cannot find dataname {dataname} in cerebro, {order_id} {action} {ibstatus}, maybe changed the data config")
+            return None
+
         ib_order = IBOrder(simulated=True, action=action, owner=owner, data=data, 
                            size=size, price=price, pricelimit=pricelimit,
                            exectype=exec_type, valid=None,
@@ -622,6 +626,8 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
             return
 
         ib_order = self.rebuild_order(order_data)
+        if ib_order is None:
+            return
 
         # set status and notify the order
         with self._lock_orders:
@@ -870,6 +876,8 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
                 self.check_completed_orders(order_data)
                 continue
             ib_order = self.rebuild_order(order_data)
+            if ib_order is None:
+                continue
             if ib_order.orderId not in self.orderbyid:
                 self.orderbyid[ib_order.orderId] = ib_order
                 self.notify(ib_order)
