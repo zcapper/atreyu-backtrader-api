@@ -44,11 +44,15 @@ import logging
 import pytz
 
 bytes = bstr  # py2/3 need for ibpy
-logger = logging.getLogger(__name__)
-stream_handler = logging.StreamHandler()
-stream_handler.setLevel(logging.INFO)
-logger.addHandler(stream_handler)
-logger.setLevel(logging.INFO)
+
+store_logger = logging.getLogger(__name__)
+store_stream_handler = logging.StreamHandler()
+store_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+store_stream_handler = logging.StreamHandler()
+store_stream_handler.setFormatter(store_formatter)
+store_stream_handler.setLevel(logging.INFO)
+store_logger.addHandler(store_stream_handler)
+store_logger.setLevel(logging.INFO)
 
 
 class ErrorMsg(object):
@@ -324,10 +328,10 @@ def logibmsg(fn):
             args_repr = [repr(a) for a in args]
             kwargs_repr = [f"{k}={v!r}" for k, v in kwargs.items()]
             signature = ", ".join(args_repr + kwargs_repr)
-            logger.debug(f"Calling {fn.__name__}({signature})")
+            store_logger.debug(f"Calling {fn.__name__}({signature})")
             return fn(self, *args, **kwargs)
         except Exception as e:
-            logger.exception(f"Exception raised in {fn.__name__}. exception: {str(e)}")
+            store_logger.exception(f"Exception raised in {fn.__name__}. exception: {str(e)}")
             raise e
 
     return logmsg_decorator
@@ -353,7 +357,7 @@ class IBApi(EWrapper, EClient):
     @logibmsg
     def nextValidId(self, orderId):
         """ Receives next valid order id."""
-        logger.debug(f"nextValidId: {orderId}")
+        store_logger.debug(f"nextValidId: {orderId}")
         self.cb.nextValidId(orderId)
 
     @logibmsg
@@ -365,7 +369,7 @@ class IBApi(EWrapper, EClient):
     def connectionClosed(self):
         """This function is called when TWS closes the sockets
         connection with the ActiveX control, or when TWS is shut down."""
-        logger.debug(f"connectionClosed")
+        store_logger.debug(f"connectionClosed")
         self.cb.connectionClosed()
 
     @logibmsg
@@ -877,22 +881,22 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         self.conn = IBApi(self, self._debug)
         while not self.connected():
             self.conn.connect(self.p.host, self.p.port, self.clientId)
-            logger.info("Connect failed retrying after 5 seconds.....")
+            store_logger.info("Connect failed retrying after 5 seconds.....")
             time.sleep(5)
         self.apiThread = threading.Thread(target=self.conn.run, name="ibapi_run", daemon=True)
         self.apiThread.start()
 
     def set_logger_level(self):
-        handler = logger.handlers[0]
+        handler = store_logger.handlers[0]
         if self._debug:
             handler.setLevel(logging.DEBUG)
-            logger.setLevel(logging.DEBUG)
+            store_logger.setLevel(logging.DEBUG)
         else:
             handler.setLevel(logging.INFO)
-            logger.setLevel(logging.INFO)
+            store_logger.setLevel(logging.INFO)
 
     def start(self, data=None, broker=None):
-        logger.info(f"IBStore start, data: {data} broker: {broker}")
+        store_logger.info(f"IBStore start, data: {data} broker: {broker}")
         while not self.reconnect(fromstart=True):  # reconnect should be an invariant
             print("Connect failed retrying after 5 seconds.....")
             time.sleep(5)
@@ -979,14 +983,14 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             retries += firstconnect
 
         while retries < 0 or retries:
-            logger.debug(f"Retries: {retries}")
+            store_logger.debug(f"Retries: {retries}")
             if not firstconnect:
-                logger.debug(f"Reconnect in {self.p.timeout} secs")
+                store_logger.debug(f"Reconnect in {self.p.timeout} secs")
                 time.sleep(self.p.timeout)
 
             firstconnect = False
 
-            logger.debug("Connect (host={self.p.host}, port={self.p.port}, clientId={self.clientId})")
+            store_logger.debug("Connect (host={self.p.host}, port={self.p.port}, clientId={self.clientId})")
             self.conn.connect(self.p.host, self.p.port, self.clientId)
             if self.connected():
                 if not fromstart or resub:
@@ -1020,7 +1024,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             return
 
         # stop subs and force datas out of the loop (in LIFO order)
-        logger.debug(f"Stopping datas")
+        store_logger.debug(f"Stopping datas")
         ts = list()
         for data in self.datas:
             t = threading.Thread(target=data.canceldata, name="canceldata")
@@ -1064,20 +1068,20 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         # errors in Interactive Brokers are actually informational and many may
         # actually be of interest to the user
         if msg.reqId > 0:
-            logger.error(f"{msg}")
+            store_logger.error(f"{msg}")
         else:
-            logger.debug(f"{msg}")
+            store_logger.debug(f"{msg}")
 
         if msg.reqId == -1:
             if msg.errorCode == 502:
                 print(msg.errorString)
             elif msg.errorCode in [2104, 2107, 2106, 2158]:
-                logger.info(f"{msg.errorString}")
+                store_logger.info(f"{msg.errorString}")
             elif msg.errorCode == 2105:
-                logger.critical(f"{msg.errorString}")
+                store_logger.critical(f"{msg.errorString}")
                 # raise RuntimeError("We cannot get the historical data from interactive brokers, please restart the ibgate or tws!")
             else:
-                logger.info(f"error: {msg.errorCode} {msg.errorString}")
+                store_logger.info(f"error: {msg.errorCode} {msg.errorString}")
 
         if not self.p.notifyall:
             self.notifs.put((msg, tuple(vars(msg).values()), dict(vars(msg).items())))
@@ -1095,7 +1099,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             except KeyError:
                 pass  # should not happend but it can
             else:
-                logger.warn(f"Cancel data queue for {msg.reqId}")
+                store_logger.warn(f"Cancel data queue for {msg.reqId}")
                 self.cancelQueue(q, True)
 
         elif msg.errorCode in [354, 420]:
@@ -1108,7 +1112,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
                 pass  # should not happend but it can
             else:
                 q.put(-msg.errorCode)
-                logger.warn(f"Cancel data queue for {msg.reqId}")
+                store_logger.warn(f"Cancel data queue for {msg.reqId}")
                 self.cancelQueue(q)
 
         elif msg.errorCode == 10225:
@@ -1175,7 +1179,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
                 # Cancel the queue if a "data" reqId error is given: sanity
                 with self._lock_q:
                     q = self.qs[msg.reqId]
-                logger.warn(f"Cancel data queue for {msg.reqId}")
+                store_logger.warn(f"Cancel data queue for {msg.reqId}")
                 self.cancelQueue(q, True)
     
     def connectionClosed(self):
@@ -1193,10 +1197,10 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         return True
     
     def updateAccountTime(self, timeStamp):
-        logger.debug(f"timeStamp: {timeStamp}")
+        store_logger.debug(f"timeStamp: {timeStamp}")
 
     def connectAck(self):
-        logger.debug(f"connectAck")
+        store_logger.debug(f"connectAck")
     
     def managedAccounts(self, accountsList):
         # 1st message in the stream
@@ -1307,7 +1311,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
 
     def contractDetailsEnd(self, reqId):
         '''Signal end of contractdetails'''
-        logger.debug(f"Cancel data queue tickerId: {reqId} Q: {self.qs[reqId]}")
+        store_logger.debug(f"Cancel data queue tickerId: {reqId} Q: {self.qs[reqId]}")
         with self._lock_q:
             tickerId = self.qs[reqId]
         self.cancelQueue(tickerId, True)
@@ -1348,13 +1352,13 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         # Get or reuse a queue
         if tickerId is None:
             tickerId, q = self.getTickerQueue()
-            logger.debug(f"Get tickerId: {tickerId} Q: {q}")
+            store_logger.debug(f"Get tickerId: {tickerId} Q: {q}")
         else:
             tickerId, q = self.reuseQueue(tickerId)  # reuse q for old tickerId
-            logger.debug(f"Reuse tickerId: {tickerId} Q: {q}")
+            store_logger.debug(f"Reuse tickerId: {tickerId} Q: {q}")
 
-        logger.debug(f"Request duration: {base_duration} barsize: {barsize} timeframe: {timeframe} compression: {compression}")
-        logger.debug(f"Date: {enddate} begindate: {begindate} what: {what} useRTH: {useRTH} tz: {tz} sessionend: {sessionend}")
+        store_logger.debug(f"Request duration: {base_duration} barsize: {barsize} timeframe: {timeframe} compression: {compression}")
+        store_logger.debug(f"Date: {enddate} begindate: {begindate} what: {what} useRTH: {useRTH} tz: {tz} sessionend: {sessionend}")
         if begindate is None:
             duration = self.get_max_duration(barsize)
         else:
@@ -1383,8 +1387,8 @@ class IBStore(with_metaclass(MetaSingleton, object)):
 
         what = what or 'TRADES'
 
-        logger.debug(f"Request Historical Data, parameters are:")
-        logger.debug(f"tickerId: {tickerId} contract: {contract} enddate: {enddate} begindate: {begindate} duration: {duration} barsize: {barsize} what: {what}, useRTH: {useRTH} tz: {tz}")
+        store_logger.debug(f"Request Historical Data, parameters are:")
+        store_logger.debug(f"tickerId: {tickerId} contract: {contract} enddate: {enddate} begindate: {begindate} duration: {duration} barsize: {barsize} what: {what}, useRTH: {useRTH} tz: {tz}")
         self.conn.reqHistoricalData(
             tickerId,
             contract,
@@ -1423,15 +1427,15 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             begindate = datetime.datetime(today.year, today.month, today.day)
             # begindate = datetime.datetime.now()
 
-        logger.debug(f"begin: {begindate} end: {enddate}")
+        store_logger.debug(f"begin: {begindate} end: {enddate}")
 
         # Get or reuse a queue
         if tickerId is None:
             tickerId, q = self.getTickerQueue()
-            logger.debug(f"Get tickerId: {tickerId} Q: {q}")
+            store_logger.debug(f"Get tickerId: {tickerId} Q: {q}")
         else:
             tickerId, q = self.reuseQueue(tickerId)  # reuse q for old tickerId
-            logger.debug(f"Reuse tickerId: {tickerId} Q: {q}")
+            store_logger.debug(f"Reuse tickerId: {tickerId} Q: {q}")
 
         if contract.secType in ['CASH', 'CFD']:
             with self._lock_q:
@@ -1469,7 +1473,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         with self._lock_q:
             tickerId = self.ts[q]
         self.conn.cancelHistoricalData(tickerId)
-        logger.warn(f"Cancel data queue for {q}")
+        store_logger.warn(f"Cancel data queue for {q}")
         self.cancelQueue(q, True)
 
     @logibmsg
@@ -1513,7 +1517,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         if tickerId is not None:
             self.conn.cancelRealTimeBars(tickerId)
 
-        logger.debug(f"Cancel data queue for {tickerId}")
+        store_logger.debug(f"Cancel data queue for {tickerId}")
         self.cancelQueue(q, True)
 
     def reqMktData(self, contract, what=None):
@@ -1573,7 +1577,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         if tickerId is not None:
             self.conn.cancelMktData(tickerId)
 
-        logger.debug(f"Cancel data queue for {tickerId}")
+        store_logger.debug(f"Cancel data queue for {tickerId}")
         self.cancelQueue(q, True)
 
     def cancelTickByTickData(self, q):
@@ -1587,7 +1591,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         if tickerId is not None:
             self.conn.cancelTickByTickData(tickerId)
 
-        logger.debug(f"Cancel data queue for {tickerId}")
+        store_logger.debug(f"Cancel data queue for {tickerId}")
         self.cancelQueue(q, True)
     
     def tickString(self, reqId, tickType, value):
@@ -1968,14 +1972,14 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         try:
             if not self._event_accdownload.is_set():  # 1st event seen
                 position = Position(float(pos), float(avgCost))
-                logger.debug(f"POSITIONS INITIAL: {self.positions}")
+                store_logger.debug(f"POSITIONS INITIAL: {self.positions}")
                 with self._lock_pos:
                     self.positions[contract.conId] = position
             else:
                 with self._lock_pos:
                     position = self.positions[contract.conId]
                     fix_result = position.fix(float(pos), avgCost)
-                logger.debug(f"POSITION UPDATE: {position}")
+                store_logger.debug(f"POSITION UPDATE: {position}")
                 if not fix_result:
                     err = ('The current calculated position and '
                         'the position reported by the broker do not match. '
@@ -1986,10 +1990,10 @@ class IBStore(with_metaclass(MetaSingleton, object)):
 
                 # self.broker.push_portupdate()
         except Exception as e:
-            logger.exception(f"Exception: {e}")
+            store_logger.exception(f"Exception: {e}")
 
     def positionEnd(self):
-        logger.debug(f"positionEnd")
+        store_logger.debug(f"positionEnd")
 
     def reqAccountUpdates(self, subscribe=True, account=None):
         '''Proxy to reqAccountUpdates
@@ -2024,7 +2028,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         try:
             if not self._event_accdownload.is_set():  # 1st event seen
                 position = Position(float(pos), float(averageCost))
-                logger.debug(f"POSITIONS INITIAL: {self.positions}")
+                store_logger.debug(f"POSITIONS INITIAL: {self.positions}")
                 # self.positions[contract.conId] = position
                 with self._lock_pos:
                     self.positions.setdefault(contract.conId, position)
@@ -2032,7 +2036,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
                 with self._lock_pos:
                     position = self.positions[contract.conId]
                     fix_result = position.fix(float(pos), averageCost)
-                logger.debug(f"POSITION UPDATE: {position}")
+                store_logger.debug(f"POSITION UPDATE: {position}")
                 if not fix_result:
                     err = ('The current calculated position and '
                         'the position reported by the broker do not match. '
@@ -2045,7 +2049,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
                 # self.port_update = True
                 self.broker.push_portupdate()
         except Exception as e:
-            logger.exception(f"Exception: {e}")
+            store_logger.exception(f"Exception: {e}")
 
     def getposition(self, contract, clone=False):
         # Lock access to the position dicts. This is called from main thread

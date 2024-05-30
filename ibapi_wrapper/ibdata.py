@@ -32,11 +32,7 @@ import datetime
 import pytz
 
 import logging
-logger = logging.getLogger(__name__)
-stream_handler = logging.StreamHandler()
-stream_handler.setLevel(logging.INFO)
-logger.addHandler(stream_handler)
-logger.setLevel(logging.INFO)
+
 
 class MetaIBData(DataBase.__class__):
     def __init__(cls, name, bases, dct):
@@ -319,6 +315,16 @@ class IBData(with_metaclass(MetaIBData, DataBase)):
         self.ib = self._store(**kwargs)
         self.precontract = self.parsecontract(self.p.dataname)
         self.pretradecontract = self.parsecontract(self.p.tradename)
+        self.init_logger()
+
+    def init_logger(self):
+        self.logger = logging.getLogger(__name__)
+        stream_handler = logging.StreamHandler()
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        stream_handler.setFormatter(formatter)
+        stream_handler.setLevel(logging.INFO)
+        self.logger.addHandler(stream_handler)
+        self.logger.setLevel(logging.INFO)
 
     def setenvironment(self, env):
         '''Receives an environment (cerebro) and passes it over to the store it
@@ -675,11 +681,11 @@ class IBData(with_metaclass(MetaIBData, DataBase)):
                 except queue.Empty:
                     if self.p.historical:  # only historical
                         if self._historical_get_date_time is None:
-                            logger.warning("We didn't get historical data, consider to set the self.p.qcheck to 0.0 to accelerate the process.")
+                            self.logger.warning("We didn't get historical data, consider to set the self.p.qcheck to 0.0 to accelerate the process.")
                             self._historical_get_date_time = datetime.datetime.now()
 
                         if datetime.datetime.now() - self._historical_get_date_time > datetime.timedelta(seconds=60):
-                            logger.warning("We didn't get historical data for 60 seconds, consider to set the self.p.qcheck to 0.0 to accelerate the process.")
+                            self.logger.warning("We didn't get historical data for 60 seconds, consider to set the self.p.qcheck to 0.0 to accelerate the process.")
                             self._historical_get_date_time = datetime.datetime.now()
                         # self.put_notification(self.DISCONNECTED)
                         return None  # end of historical

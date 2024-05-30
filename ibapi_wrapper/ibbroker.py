@@ -51,11 +51,6 @@ from backtrader.comminfo import CommInfoBase
 bytes = bstr  # py2/3 need for ibpy
 
 import logging
-logger = logging.getLogger(__name__)
-stream_handler = logging.StreamHandler()
-stream_handler.setLevel(logging.INFO)
-logger.addHandler(stream_handler)
-logger.setLevel(logging.INFO)
 
 
 class IBOrderState(object):
@@ -318,6 +313,17 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         self.request_open_orders_time = 0
         self.check_connection_time = 0
 
+        self.init_logger()
+
+    def init_logger(self):
+        self.logger = logging.getLogger(__name__)
+        stream_handler = logging.StreamHandler()
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        stream_handler.setFormatter(formatter)
+        stream_handler.setLevel(logging.INFO)
+        self.logger.addHandler(stream_handler)
+        self.logger.setLevel(logging.INFO)
+
     def start(self):
         super(IBBroker, self).start()
         self.ib = ibstore.IBStore()
@@ -340,17 +346,17 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
     def getcash(self):
         # This call cannot block if no answer is available from ib
         self.cash = self.ib.get_acc_cash()
-        logger.debug(f"get_acc_cash: {self.cash}")
+        self.logger.debug(f"get_acc_cash: {self.cash}")
         return self.cash
 
     def getvalue(self, datas=None):
         self.value = self.ib.get_acc_value()
-        logger.debug(f"getvalue: {self.value}")
+        self.logger.debug(f"getvalue: {self.value}")
         return self.value
 
     def getposition(self, data, clone=True):
         position = self.ib.getposition(data.tradecontract, clone=clone)
-        logger.debug(f"getposition: {position}")
+        self.logger.debug(f"getposition: {position}")
         return position
 
     def cancel(self, order):
@@ -388,7 +394,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         return order
 
     def getcommissioninfo(self, data):
-        logger.info("getcommissioninfo()")
+        self.logger.info("getcommissioninfo()")
         contract = data.tradecontract
         try:
             mult = float(contract.multiplier)
@@ -476,7 +482,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
             # if the connection is lost, try to reconnect every 30 seconds
             self.check_connection_time = now
             if not self.ib.connected():
-                print("Try to reconnect to IB Gateway")
+                self.logger.info("Try to reconnect to IB Gateway")
                 if self.ib.reconnect(fromstart=True):
                     # if reconnect success, we need to wait for a while to get the orders
                     time.sleep(5)
@@ -583,7 +589,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         uuid = order_data["uuid"]
 
         if data is None:
-            logger.warning(f"We cannot find dataname {dataname} in cerebro, {order_id} {action} {ibstatus}, maybe changed the data config")
+            self.logger.warning(f"We cannot find dataname {dataname} in cerebro, {order_id} {action} {ibstatus}, maybe changed the data config")
             return None
 
         ib_order = IBOrder(simulated=True, action=action, owner=owner, data=data, 
@@ -619,10 +625,10 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
 
         order_data = self._load_order(contract.symbol, client_id, order_id)
         if order_data == None:
-            print(f"ERROR: Cannot load order data from file, {order_id} {contract.symbol} {order_status}")
+            self.logger.error(f"ERROR: Cannot load order data from file, {order_id} {contract.symbol} {order_status}")
             return
         if order_data["order_id"] != order_id:
-            print(f"ERROR: order data wrong, {order_data['order_id']} vs {order_id} {contract.symbol} {order_status}")
+            self.logger.error(f"ERROR: order data wrong, {order_data['order_id']} vs {order_id} {contract.symbol} {order_status}")
             return
 
         ib_order = self.rebuild_order(order_data)
@@ -698,7 +704,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
                 if oid not in self.tonotify:  # Lock needed
                     self.tonotify.append(oid)
             except Exception as e:
-                logger.exception(f"Exception: {e}")
+                self.logger.exception(f"Exception: {e}")
 
     def push_portupdate(self):
         # If the IBStore receives a Portfolio update, then this method will be
@@ -848,7 +854,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         dest_path = os.path.abspath(os.path.join(self.save_completed_path, filename))
         # move
         os.rename(os.path.join(self.save_path, src_filename), dest_path)
-        logger.info(f"Order({order_data['symbol']}_{order_data['client_id']}_{order_data['order_id']}) move to Completed directory.")
+        self.logger.info(f"Order({order_data['symbol']}_{order_data['client_id']}_{order_data['order_id']}) move to Completed directory.")
 
     def load_orders(self):
         '''
@@ -871,7 +877,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         for order_data in self.loaded_orders.values():
             if order_data["ibstatus"] in (self.FILLED, self.CANCELLED, self.INACTIVE, self.APICANCELLED):
                 # the order is already completed, no need to rebuild
-                print(f"Order({order_data['symbol']}_{order_data['client_id']}_{order_data['order_id']}) is already completed, no need to rebuild.")
+                self.logger.info(f"Order({order_data['symbol']}_{order_data['client_id']}_{order_data['order_id']}) is already completed, no need to rebuild.")
                 # move the file to another directory
                 self.check_completed_orders(order_data)
                 continue
@@ -899,7 +905,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         self.ib.reqOpenOrders()
         self.request_open_orders_count = 0
         self.request_open_orders_time = time.time()
-        print("Start request open orders and completed orders from broker")
+        self.logger.info("Start request open orders and completed orders from broker")
 
     def rebuild_after_reconnect(self):
         self.request_broker_orders()
