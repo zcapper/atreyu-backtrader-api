@@ -873,6 +873,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         load all opened orders from file and insert into order list
         and request the broker for all opened orders to determine the status of each order
         '''
+        self.logger.info("Start load local orders")
         orders_dir = os.path.realpath(self.save_path)
         for file in os.listdir(orders_dir):
             if file.endswith(".json"):
@@ -899,6 +900,8 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
             if ib_order.orderId not in self.orderbyid:
                 self.orderbyid[ib_order.orderId] = ib_order
                 self.notify(ib_order)
+
+        self.logger.info("End load local orders")
 
         # request all opened orders to update the order status
         self.request_broker_orders()
