@@ -749,6 +749,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         We will continue to request orders later. Since there is a lot of data not yet ready at the initial stage, we can ignore this stage for now.
         '''
         if msg == None:
+            self.logger.info("Receive all opened orders request from broker")
             # all open order push finished
             # self.broker_orders.put(None)
             need_request = False
@@ -773,7 +774,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
             self.broker_orders.put(msg)
             return
 
-    def push_completedorder(self, msg):
+    def push_completedorders(self, msg):
         # The same as the open order, we only need to recreate the non-existent orders
         self.push_openorder(msg)
 
