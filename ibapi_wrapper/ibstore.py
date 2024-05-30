@@ -1102,7 +1102,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
                 store_logger.critical(f"{msg.errorString}")
                 # raise RuntimeError("We cannot get the historical data from interactive brokers, please restart the ibgate or tws!")
             else:
-                store_logger.info(f"error: {msg.errorCode} {msg.errorString}")
+                store_logger.error(f"error: {msg.errorCode} {msg.errorString}")
 
         if not self.p.notifyall:
             self.notifs.put((msg, tuple(vars(msg).values()), dict(vars(msg).items())))
@@ -1143,7 +1143,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             self.stop()
             self.close_connection()
 
-        elif msg.errorCode == [502, 504, 10225, 1100]:
+        elif msg.errorCode in [502, 504, 10225, 1100]:
             # Cannot connect to TWS: port, config not open, tws off (504 then)
             for data in self.datas:
                 if data is not None:
@@ -1163,6 +1163,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             for data in self.datas:
                 if data is not None:
                     data.push_error(msg)
+            self.set_losing_data(True)
             self._need_reconnect = True
 
         elif msg.errorCode == 1102:
@@ -1170,6 +1171,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             for data in self.datas:
                 if data is not None:
                     data.push_error(msg)
+            self.set_losing_data(True)
             self._need_reconnect = True
 
         elif msg.errorCode < 500:
