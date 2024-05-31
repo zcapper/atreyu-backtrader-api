@@ -468,8 +468,8 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
             else:
                 self.logger.info("Force discoonect from IB Gateway because data lost")
                 if self.ib.force_close_connection():
-                    self.logger.info("Wait for 5 seconds to disconnect.")
-                    time.sleep(5)
+                    self.logger.info("Wait for 20 seconds to disconnect.")
+                    time.sleep(20)
                 else:
                     self.logger.info("Cannot disconnect from IB Gateway.")
                     return
@@ -508,8 +508,8 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
 
         if now - self.check_connection_time > 30:
             # if the connection is lost, try to reconnect every 30 seconds
-            self.check_connection_time = now
             self._check_connection()
+            self.check_connection_time = time.time()
 
         self.notifs.put(None)  # mark notificatino boundary
 

@@ -507,6 +507,8 @@ class IBData(with_metaclass(MetaIBData, DataBase)):
         else:
             self.ib.cancelRealTimeBars(self.qlive)
 
+        self._subcription_valid = False
+
     def haslivedata(self):
         return bool(self._storedmsg or self.qlive)
 
@@ -816,7 +818,7 @@ class IBData(with_metaclass(MetaIBData, DataBase)):
         while not self.qerror.empty():
             msg = self.qerror.get()
 
-            if msg.errorCode in [502, 504, 1100, 10225]:
+            if msg.errorCode in [502, 504, 1102, 1101, 10225]:
                 self._subcription_valid = False
                 self.put_notification(self.CONNBROKEN)
                 self._statelivereconn = self.p.backfill

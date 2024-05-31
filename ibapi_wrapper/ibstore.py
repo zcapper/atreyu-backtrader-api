@@ -1143,12 +1143,13 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             self.stop()
             self.close_connection()
 
-        elif msg.errorCode in [502, 504, 10225, 1100]:
+        elif msg.errorCode in [502, 504, 10225, 1101, 1102]:
             # Cannot connect to TWS: port, config not open, tws off (504 then)
             for data in self.datas:
                 if data is not None:
                     data.push_error(msg)
             self.set_losing_data(True)
+            self._need_reconnect = True
 
         elif msg.errorCode == 1300:
             # TWS has been closed. The port for a new connection is there
@@ -1158,21 +1159,11 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             self.stop()
             self.close_connection()
 
-        elif msg.errorCode == 1101:
+        elif msg.errorCode == 1100:
             # Connection restored and tickerIds are gone
             for data in self.datas:
                 if data is not None:
                     data.push_error(msg)
-            self.set_losing_data(True)
-            self._need_reconnect = True
-
-        elif msg.errorCode == 1102:
-            # Connection restored and tickerIds maintained
-            for data in self.datas:
-                if data is not None:
-                    data.push_error(msg)
-            self.set_losing_data(True)
-            self._need_reconnect = True
 
         elif msg.errorCode < 500:
             # Given the myriad of errorCodes, start by assuming is an order
@@ -1204,6 +1195,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
     def force_close_connection(self):
         if self.connected():
             self.conn.disconnect()
+            self.stopdatas()
             return True
         else:
             return False
@@ -2233,6 +2225,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             self.histfmt = dict()  # holds datetimeformat for request
             self.histsend = dict()  # holds sessionend (data time) for request
             self.histtz = dict()  # holds sessionend (data time) for request
+            self.realtz = dict()  # holds realtime bar timezone info
 
         self.reqAccountUpdates()
         self.reqPositions()
