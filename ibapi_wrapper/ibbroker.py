@@ -466,9 +466,20 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
             if not self.ib.data_is_lost():
                 return
             else:
+                self.logger.info("Force discoonect from IB Gateway because data lost")
+                if self.ib.force_close_connection():
+                    self.logger.info("Wait for 5 seconds to disconnect.")
+                    time.sleep(5)
+                else:
+                    self.logger.info("Cannot disconnect from IB Gateway.")
+                    return
                 reason = "data lost"
         else:
             reason = "connection lost"
+
+        if self.ib.connected():
+            self.logger.error("Cannot reconnect to IB Gateway because the connection is still alive.")
+            return
 
         self.logger.info(f"Try to reconnect to IB Gateway, reason: {reason}")
         if self.ib.reconnect(fromstart=True):

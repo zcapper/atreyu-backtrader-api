@@ -542,6 +542,8 @@ class IBData(with_metaclass(MetaIBData, DataBase)):
                     self.put_notification(self.UNKNOWN, msg)
                     continue
 
+                self.ib.set_losing_data(False)
+
                 # Process the message according to expected return type
                 if not self._statelivereconn:
                     if self._laststatus != self.LIVE:
@@ -660,6 +662,8 @@ class IBData(with_metaclass(MetaIBData, DataBase)):
                     # May be a "not connected not yet processed"
                     self.put_notification(self.UNKNOWN, msg)
                     continue
+
+                self.ib.set_losing_data(False)
 
                 if msg.date is not None:
                     if self._timeframe == bt.TimeFrame.Ticks:

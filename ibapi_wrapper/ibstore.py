@@ -1201,6 +1201,13 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             self.stopdatas()
         return True
     
+    def force_close_connection(self):
+        if self.connected():
+            self.conn.disconnect()
+            return True
+        else:
+            return False
+    
     def updateAccountTime(self, timeStamp):
         store_logger.debug(f"timeStamp: {timeStamp}")
 
@@ -2208,7 +2215,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         if not self.connected():
             return
 
-        print("Start rebuild the requests after reconnect....................")
+        store_logger.info("Start rebuild the requests after reconnect....................")
         self._need_reconnect = False
         # new run thread
         self.apiThread = threading.Thread(target=self.conn.run, name="reconnect_ibapi_run", daemon=True)
