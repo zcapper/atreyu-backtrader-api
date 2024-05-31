@@ -1369,8 +1369,8 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             tickerId, q = self.reuseQueue(tickerId)  # reuse q for old tickerId
             store_logger.debug(f"Reuse tickerId: {tickerId} Q: {q}")
 
-        store_logger.debug(f"Request duration: {base_duration} barsize: {barsize} timeframe: {timeframe} compression: {compression}")
-        store_logger.debug(f"Date: {enddate} begindate: {begindate} what: {what} useRTH: {useRTH} tz: {tz} sessionend: {sessionend}")
+        store_logger.info(f"Request duration: {base_duration} barsize: {barsize} timeframe: {timeframe} compression: {compression}")
+        store_logger.info(f"Date: {enddate} begindate: {begindate} what: {what} useRTH: {useRTH} tz: {tz} sessionend: {sessionend}")
         if begindate is None:
             duration = self.get_max_duration(barsize)
         else:
@@ -1399,8 +1399,8 @@ class IBStore(with_metaclass(MetaSingleton, object)):
 
         what = what or 'TRADES'
 
-        store_logger.debug(f"Request Historical Data, parameters are:")
-        store_logger.debug(f"tickerId: {tickerId} contract: {contract} enddate: {enddate} begindate: {begindate} duration: {duration} barsize: {barsize} what: {what}, useRTH: {useRTH} tz: {tz}")
+        store_logger.info(f"Request Historical Data, parameters are:")
+        store_logger.info(f"tickerId: {tickerId} contract: {contract} enddate: {enddate} begindate: {begindate} duration: {duration} barsize: {barsize} what: {what}, useRTH: {useRTH} tz: {tz}")
         self.conn.reqHistoricalData(
             tickerId,
             contract,
