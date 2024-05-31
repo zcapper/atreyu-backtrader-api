@@ -825,6 +825,5 @@ class IBData(with_metaclass(MetaIBData, DataBase)):
             else:
                 pass
 
-
     def push_error(self, msg):
         self.qerror.put(msg)

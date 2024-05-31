@@ -506,10 +506,11 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
             if self.request_open_orders_time != 0 and now - self.request_open_orders_time > 300:
                 self.request_broker_orders()
 
-        if now - self.check_connection_time > 30:
-            # if the connection is lost, try to reconnect every 30 seconds
+        if now - self.check_connection_time > 60:
+            # if the connection is lost, try to reconnect every 60 seconds
             self._check_connection()
             self.check_connection_time = time.time()
+            self.ib.reqCurrentTime()
 
         self.notifs.put(None)  # mark notificatino boundary
 

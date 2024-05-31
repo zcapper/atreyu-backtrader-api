@@ -1225,8 +1225,6 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         curtime = datetime.datetime.fromtimestamp(float(time))
         with self._lock_tmoffset:
             self.tmoffset = curtime - datetime.datetime.now()
-
-        threading.Timer(self.p.timerefresh, self.reqCurrentTime).start()
     
     def timeoffset(self):
         with self._lock_tmoffset:
@@ -2011,6 +2009,9 @@ class IBStore(with_metaclass(MetaSingleton, object)):
                 account = self.managed_accounts[0]
 
         self.conn.reqAccountUpdates(subscribe, bytes(account))
+
+    def reqManagedAccts(self):
+        self.conn.reqManagedAccts()
 
     def accountDownloadEnd(self, accountName):
         # Signals the end of an account update
