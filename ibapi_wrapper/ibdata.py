@@ -485,6 +485,9 @@ class IBData(with_metaclass(MetaIBData, DataBase)):
         if self.contract is None or self._subcription_valid:
             return
 
+        if not self.islive():
+            return
+
         if self._usertvol and self._timeframe != bt.TimeFrame.Ticks:
             self.qlive = self.ib.reqMktData(self.contract, self.p.what)
         elif self._usertvol and self._timeframe == bt.TimeFrame.Ticks:
@@ -498,6 +501,9 @@ class IBData(with_metaclass(MetaIBData, DataBase)):
     def canceldata(self):
         '''Cancels Market Data subscription, checking asset type and rtbar'''
         if self.contract is None:
+            return
+
+        if not self.islive():
             return
 
         if self._usertvol and self._timeframe != bt.TimeFrame.Ticks:
