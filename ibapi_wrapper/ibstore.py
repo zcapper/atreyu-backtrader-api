@@ -1225,6 +1225,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         curtime = datetime.datetime.fromtimestamp(float(time))
         with self._lock_tmoffset:
             self.tmoffset = curtime - datetime.datetime.now()
+            store_logger.info(f"Server time offset is {self.tmoffset.total_seconds()} seconds")
     
     def timeoffset(self):
         with self._lock_tmoffset:

@@ -260,6 +260,8 @@ class IBData(with_metaclass(MetaIBData, DataBase)):
         ('tradename', None),  # use a different asset as order target
         ('numberOfTicks', 1000),  # Number of distinct data points. Max is 1000 per request.
         ('ignoreSize', False),  # Omit updates that reflect only changes in size, and not price. Applicable to Bid_Ask data requests.
+        ('rth_begin', None),    # rth begin time
+        ('rth_end', None),      # rth end time
     )
 
     _store = ibstore.IBStore
@@ -317,6 +319,18 @@ class IBData(with_metaclass(MetaIBData, DataBase)):
         self.pretradecontract = self.parsecontract(self.p.tradename)
         self.qerror = queue.Queue()
         self.init_logger()
+        self.init_rth_time()
+
+    def init_rth_time(self):
+        if self.p.rth_begin is not None:
+            self.rth_begin = datetime.datetime.strptime(self.p.rth_begin, '%H:%M:%S').time()
+        else:
+            self.rth_begin = None
+
+        if self.p.rth_end is not None:
+            self.rth_end = datetime.datetime.strptime(self.p.rth_end, '%H:%M:%S').time()
+        else:
+            self.rth_end = None
 
     def init_logger(self):
         self.logger = logging.getLogger(__name__)
