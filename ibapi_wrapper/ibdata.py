@@ -510,6 +510,7 @@ class IBData(with_metaclass(MetaIBData, DataBase)):
             self.qlive = self.ib.reqRealTimeBars(self.contract, what = self.p.what, tz=self._gettz())
 
         self._subcription_valid = True
+        self.logger.info(f"Start real-time data request: {self.contract.symbol}")
         return self.qlive
 
     def canceldata(self):
@@ -528,6 +529,7 @@ class IBData(with_metaclass(MetaIBData, DataBase)):
             self.ib.cancelRealTimeBars(self.qlive)
 
         self._subcription_valid = False
+        self.logger.info(f"Cancel real-time data request: {self.contract.symbol}")
 
     def haslivedata(self):
         return bool(self._storedmsg or self.qlive)
