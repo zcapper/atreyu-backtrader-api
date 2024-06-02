@@ -584,6 +584,11 @@ class IBApi(EWrapper, EClient):
     def tickString(self, reqId, tickType, value):
         self.cb.tickString(reqId, tickType, value)
 
+    def run(self):
+        store_logger.info("Starting IB API run loop")
+        super().run()
+        store_logger.info("Exiting IB API run loop")
+
 
 class IBStore(with_metaclass(MetaSingleton, object)):
     '''Singleton class wrapping an ibpy ibConnection instance.
@@ -1188,14 +1193,14 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             return False
 
         if self.connected():
-            self.conn.disconnect()
             self.stopdatas()
+            self.conn.disconnect()
         return True
     
     def force_close_connection(self):
         if self.connected():
-            self.conn.disconnect()
             self.stopdatas()
+            self.conn.disconnect()
             return True
         else:
             return False
