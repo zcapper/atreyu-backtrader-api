@@ -1507,6 +1507,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             [])
         self.realtz[tickerId] = tz
 
+        store_logger.info(f"Request realtime data queue for {tickerId}")
         return q
 
     def cancelRealTimeBars(self, q):
@@ -1520,7 +1521,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
         if tickerId is not None:
             self.conn.cancelRealTimeBars(tickerId)
 
-        store_logger.debug(f"Cancel data queue for {tickerId}")
+        store_logger.info(f"Cancel data queue for {tickerId}")
         self.cancelQueue(q, True)
 
     def reqMktData(self, contract, what=None):
