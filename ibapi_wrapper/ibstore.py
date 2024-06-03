@@ -1043,10 +1043,10 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             t.join()
 
     @logibmsg
-    def stopdatas(self):
+    def stopdatas(self, force=False):
         # if no stop flag, don't stop datas
         # and wait for reconnecting
-        if not self._stop_flag:
+        if not self._stop_flag and not force:
             return
 
         # stop subs and force datas out of the loop (in LIFO order)
@@ -1199,7 +1199,7 @@ class IBStore(with_metaclass(MetaSingleton, object)):
     
     def force_close_connection(self):
         if self.connected():
-            self.stopdatas()
+            self.stopdatas(force=True)
             self.conn.disconnect()
             return True
         else:
