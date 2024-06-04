@@ -1039,12 +1039,6 @@ class IBStore(with_metaclass(MetaSingleton, object)):
             ts.append(t)
             index += 1
 
-        # sleep 30 seconds to wait for the data to be ready
-        # There is the case that the data is partially ready, the partiallly ready data will affect the strategy
-        # We have no other way to solve this problem, so we just sleep 30 seconds to wait for the data to be ready
-        store_logger.info("Sleep 30 seconds to wait for the data to be ready because there is a case that the data is partially ready")
-        time.sleep(30)
-
         for t in ts:
             t.join()
 
