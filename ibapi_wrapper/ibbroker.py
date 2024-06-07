@@ -300,6 +300,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         self._lock_orders = threading.Lock()  # control access
         self.orderbyid = dict()  # orders by order id
         self.loaded_orders = dict()  # orders loaded from file
+        self.received_orders = queue.Queue()  # orders received from broker
         self.executions = dict()  # notified executions
         self.ordstatus = collections.defaultdict(dict)
         self.notifs = queue.Queue()  # holds orders which are notified
@@ -307,6 +308,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         self.broker_orders = queue.Queue()   # hold opened orders
         self.save_path = kwargs.get("save_path", os.path.join(os.path.realpath(os.curdir), "TradeData"))
         self.save_completed_path = os.path.abspath(os.path.join(self.save_path, "Completed"))
+        self.save_expire_path = os.path.abspath(os.path.join(self.save_path, "Expired"))
 
         self.is_requesting_open_orders = False
         self.request_open_orders_count = 0
@@ -664,6 +666,39 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
 
         self.notify(ib_order, False)
 
+    def check_order_existance(self):
+        received_orders = set()
+        while not self.received_orders.empty():
+            received_orders.add(self.received_orders.get())
+
+        # delete the orders that is expire or not exists
+        need_delete = []
+        for orderid, orderdata in self.loaded_orders.items():
+            if orderid not in received_orders:
+                orderdata["not_exists_cnt"] += 1
+                if orderdata["not_exists_cnt"] > 3:
+                    need_delete.append(orderid)
+
+        for orderid in need_delete:
+            # move the order to expire folder
+            filename = self.loaded_orders[orderid]["filename"]
+            if not os.path.exists(self.save_expire_path):
+                os.makedirs(self.save_expire_path)
+
+            index = 1
+            while True:
+                dest_name = f"{orderdata['symbol']}_{orderdata['client_id']}_{orderdata['order_id']}_{index}.json"
+                if not os.path.exists(os.path.join(self.save_expire_path, dest_name)):
+                    break
+                else:
+                    index += 1
+            dest_path = os.path.abspath(os.path.join(self.save_expire_path, dest_name))
+            os.rename(os.path.join(self.save_path, filename), os.path.join(self.save_expire_path, dest_path))
+            self.logger.info(f"Move the expired order {filename} to expire folder")
+            if orderid in self.orderbyid:
+                self.orderbyid.pop(orderid)
+            self.loaded_orders.pop(orderid)
+
     def push_execution(self, ex):
         self.executions[ex.execId] = ex
 
@@ -782,7 +817,11 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
                     need_request = True
             if need_request:
                 self.request_broker_orders()
+            else:
+                self.check_order_existance()
             return
+
+        self.received_orders.put(msg.orderId)
 
         has_order = False
         with self._lock_orders:
@@ -821,6 +860,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
             order_data["valid"] = timezone.localize(naive_time)
         order_data["symbol"] = symbol
         order_data["filename"] = filename
+        order_data["not_exists_cnt"] = 0
         return order_data
 
     def _save_order(self, order):
@@ -897,7 +937,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
                 if client_id != self.ib.clientId:
                     continue
                 order_data = self._load_order(symbol, client_id, order_id)
-                self.loaded_orders[order_id] = order_data
+                self.loaded_orders[int(order_id)] = order_data
 
         for order_data in self.loaded_orders.values():
             if order_data["ibstatus"] in (self.FILLED, self.CANCELLED, self.INACTIVE, self.APICANCELLED):
@@ -932,6 +972,7 @@ class IBBroker(with_metaclass(MetaIBBroker, BrokerBase)):
         self.ib.reqOpenOrders()
         self.request_open_orders_count = 0
         self.request_open_orders_time = time.time()
+        self.received_orders.queue.clear()
         self.logger.info("Start request open orders and completed orders from broker")
 
     def rebuild_after_reconnect(self):
